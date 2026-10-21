@@ -1,0 +1,101 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1f1f1f;
+  --muted: #6b6b6b;
+  --line: #e3e3e3;
+  --chip: #f3f6fb;
+  --chip-hover: #e2eaf7;
+  --accent: #2b579a;
+  --accent-fg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f;
+    --fg: #f0f0f0;
+    --muted: #a0a0a0;
+    --line: #3a3a3a;
+    --chip: #2a2f38;
+    --chip-hover: #34404f;
+    --accent: #7aa7e6;
+    --accent-fg: #10141a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 "Segoe UI", system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+header {
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+
+#search {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  outline: none;
+}
+#search:focus { border-color: var(--accent); }
+
+main { flex: 1; padding: 10px 12px; }
+
+.status { color: var(--muted); margin-bottom: 8px; }
+.status b { color: var(--fg); }
+
+.lemmas { margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+.lemmas button {
+  font: inherit;
+  margin: 2px 4px 2px 0;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.lemmas button.active { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.list button {
+  font: inherit;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.list button:hover, .list button:focus-visible { background: var(--chip-hover); outline: none; }
+.list button.used { background: var(--accent); color: var(--accent-fg); }
+
+footer {
+  padding: 10px 12px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+footer .muted { display: block; margin-top: 4px; opacity: .8; }
