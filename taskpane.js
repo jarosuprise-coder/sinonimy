@@ -1,13 +1,10 @@
-/* Панель «Синонимы» для Word: следит за выделением, показывает синонимы из нескольких словарей,
-   заменяет слово. Вкладки: «Все» (без повторов), по одному словарю и «ИИ» — перефразирование
-   фраз и подбор синонимов по контексту через бесплатные ИИ-сервисы (ai.js). */
+// Панель «Синонимы» для Word.
 (function () {
   "use strict";
 
-  var VERSION = "1.2.2";
-  var DICT_VER = "2";   // меняется, когда обновляются файлы dict/*.json
+  var VERSION = "1.2.3";
+  var DICT_VER = "2";
 
-  // Порядок вкладок. short — пометка источника на вкладке «Все».
   var SOURCES = [
     { id: "abramov", name: "Абрамов", short: "А", url: "dict/abramov.json",
       about: "Словарь русских синонимов Н. Абрамова (1911)" },
@@ -21,8 +18,8 @@
   var BY_ID = {};
   SOURCES.forEach(function (s) { BY_ID[s.id] = s; });
 
-  var dicts = {};          // id → словарь | "loading" | "error"
-  var wikiCache = {};      // ключ запроса → {title, groups} | null
+  var dicts = {};
+  var wikiCache = {};
   var state = { word: null, target: null, prefer: null, cur: null, lemmas: [], results: {}, wiki: "idle", reqId: 0,
                 phrase: false, context: "" };
   var ai = { settings: AI.loadSettings(), style: "same", status: "idle", variants: [], error: "", model: "",
@@ -34,18 +31,22 @@
   var $ = function (id) { return document.getElementById(id); };
   var L = "A-Za-zА-Яа-яЁё";
 
-  /* ---------- Мелочи ---------- */
-
-  function setStatus(html) { $("status").innerHTML = html; }
-  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function setStatus(before, bold, after) {
+    var box = $("status");
+    box.textContent = before || "";
+    if (bold != null) {
+      var b = document.createElement("b");
+      b.textContent = bold;
+      box.appendChild(b);
+      box.appendChild(document.createTextNode(after || ""));
+    }
+  }
   function readTab() { try { return localStorage.getItem("sin-tab") || "all"; } catch (e) { return "all"; } }
-  function saveTab(t) { try { localStorage.setItem("sin-tab", t); } catch (e) { /* не страшно */ } }
+  function saveTab(t) { try { localStorage.setItem("sin-tab", t); } catch (e) {} }
   function anyLoaded() { return SOURCES.some(function (s) { return dicts[s.id] && typeof dicts[s.id] === "object"; }); }
   function hasLocal(w) {
     return SOURCES.some(function (s) { var d = dicts[s.id]; return d && typeof d === "object" && d.has(w); });
   }
-
-  /* ---------- Кэш словарей (IndexedDB) ---------- */
 
   function openDb() {
     return new Promise(function (res, rej) {
@@ -100,8 +101,6 @@
       setStatus(inWord ? "Выделите слово в документе" : "Введите слово в поиске");
     }
   }
-
-  /* ---------- Викисловарь ---------- */
 
   function yoVariants(w) {
     var out = [];
@@ -175,8 +174,6 @@
     render();
   }
 
-  /* ---------- Поиск синонимов ---------- */
-
   function show(word, target, prefer, keepWiki) {
     var sameWord = state.word === word && (state.prefer || null) === (prefer || null);
     state.word = word;
@@ -185,7 +182,7 @@
     state.phrase = /\s/.test(word.trim());
     if (!sameWord) aiReset();
 
-    if (state.phrase) {                // фраза: словари не нужны, только вкладка «ИИ»
+    if (state.phrase) {
       state.reqId++;
       state.lemmas = []; state.cur = null; state.results = {}; state.wiki = "idle";
       render();
@@ -207,7 +204,7 @@
     });
 
     if ((keepWiki || sameWord) && state.wiki === "loading") {
-      render();                       // ответ Викисловаря ещё в пути — дождёмся его
+      render();
     } else if ((keepWiki || sameWord) && oldWiki && state.wiki !== "error") {
       state.results.wiki = oldWiki;
       render();
@@ -231,14 +228,12 @@
     return list;
   }
 
-  /* ---------- Отрисовка ---------- */
-
   function render() {
     var word = state.word;
     if (state.phrase) {
       renderTabs(0);
       $("lemmas").hidden = true;
-      setStatus("Фраза: «<b>" + esc(word.length > 80 ? word.slice(0, 80) + "…" : word) + "</b>»");
+      setStatus("Фраза: «", word.length > 80 ? word.slice(0, 80) + "…" : word, "»");
       renderAI();
       return;
     }
@@ -248,18 +243,15 @@
     var lemma = state.cur ? state.cur.lemma : (state.results.wiki && state.results.wiki.lemma) || null;
     if (!all.length) {
       var waiting = state.wiki === "loading" || SOURCES.some(function (s) { return dicts[s.id] === "loading"; });
-      setStatus(waiting ? "Ищу синонимы к «<b>" + esc(word) + "</b>»…"
-                        : "Нет синонимов для «<b>" + esc(word) + "</b>»");
+      setStatus(waiting ? "Ищу синонимы к «" : "Нет синонимов для «", word, waiting ? "»…" : "»");
     } else {
-      var head = "«<b>" + esc(word) + "</b>»";
-      if (lemma && Syn.key(lemma) !== Syn.key(word)) head += " → " + esc(lemma);
-      setStatus(head);
+      setStatus("«", word, "»" + (lemma && Syn.key(lemma) !== Syn.key(word) ? " → " + lemma : ""));
     }
 
     renderLemmas();
 
     var list = $("list");
-    list.innerHTML = "";
+    list.textContent = "";
     if (tab === "ai") {
       renderAI();
     } else if (tab === "all") {
@@ -321,7 +313,7 @@
 
   function renderTabs(allCount) {
     var nav = $("tabs");
-    nav.innerHTML = "";
+    nav.textContent = "";
     nav.hidden = false;
     var aiDef = { id: "ai", name: "✨ ИИ", title: "Перефразирование и синонимы по контексту через ИИ",
                   count: ai.status === "loading" || ai.status === "waiting" ? "…" : ai.status === "error" ? "!" : ai.variants.length || "" };
@@ -339,7 +331,11 @@
       b.setAttribute("aria-selected", d.id === active ? "true" : "false");
       b.className = "tab" + (d.id === active ? " active" : "") + (d.count === 0 ? " empty" : "") + (d.id === "ai" ? " ai" : "");
       if (d.title) b.title = d.title;
-      b.innerHTML = esc(d.name) + ' <span class="cnt">' + esc(d.count) + "</span>";
+      b.textContent = d.name + " ";
+      var cnt = document.createElement("span");
+      cnt.className = "cnt";
+      cnt.textContent = String(d.count);
+      b.appendChild(cnt);
       b.onclick = function () { if (state.phrase) return; tab = d.id; saveTab(tab); render(); };
       nav.appendChild(b);
     });
@@ -347,7 +343,7 @@
 
   function renderLemmas() {
     var box = $("lemmas");
-    box.innerHTML = "";
+    box.textContent = "";
     if (state.lemmas.length < 2) { box.hidden = true; return; }
     box.appendChild(document.createTextNode("Другие значения: "));
     state.lemmas.forEach(function (l) {
@@ -361,15 +357,11 @@
     box.hidden = false;
   }
 
-  /* ---------- Работа с текстом ---------- */
-
-  // Разделяет выделение на знаки по краям и само слово: «слово, » → ["", "слово", ", "]
   function splitEdges(text) {
     var m = String(text).match(new RegExp("^([^" + L + "]*)([\\s\\S]*?)([^" + L + "]*)$"));
     return { pre: m[1], core: m[2], post: m[3] };
   }
 
-  // Слово вокруг позиции курсора в тексте абзаца
   function wordAt(text, offset) {
     var re = new RegExp("[" + L + "\\-]");
     var s = offset, e = offset;
@@ -380,7 +372,6 @@
     return { word: text.slice(s, e), start: s };
   }
 
-  // Сколько раз это слово целиком встречается в абзаце до позиции start
   function countBefore(text, word, start) {
     var safe = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     var re = new RegExp("(?<![" + L + "])" + safe + "(?![" + L + "])", "g");
@@ -401,9 +392,6 @@
     return info;
   }
 
-  /* ---------- Реакция на выделение ---------- */
-
-  // Предложение вокруг фрагмента [start, end) в тексте абзаца — контекст для ИИ
   function sentenceAround(text, start, end) {
     var a = start, b = end;
     while (a > 0 && !/[.!?…]/.test(text[a - 1])) a--;
@@ -438,7 +426,7 @@
           if (!p.core) return;
           if (p.core.length > 1500) {
             state.word = null;
-            $("list").innerHTML = ""; $("lemmas").hidden = true; $("tabs").hidden = true;
+            $("list").textContent = ""; $("lemmas").hidden = true; $("tabs").hidden = true;
             setStatus("Выделен слишком длинный фрагмент. Выделите слово, фразу или предложение.");
             return;
           }
@@ -456,8 +444,6 @@
       });
     } catch (e) { console.error(e); }
   }
-
-  /* ---------- Вкладка «ИИ» ---------- */
 
   function aiReset() {
     ai.reqId++;
@@ -487,7 +473,6 @@
       ai.status = "done"; ai.variants = res.variants; ai.model = res.model;
     } catch (e) {
       if (id !== ai.reqId) return;
-      // лимит бесплатного сервиса: подождать и повторить сам (не больше двух раз)
       if (e && e.retryAfter && (ai.retries || 0) < 2) {
         ai.retries = (ai.retries || 0) + 1;
         ai.status = "waiting"; ai.waitUntil = Date.now() + e.retryAfter * 1000;
@@ -520,7 +505,7 @@
 
   function renderAI() {
     var list = $("list");
-    list.innerHTML = "";
+    list.textContent = "";
     var box = el("div", "ai-box");
     var st = ai.settings, prov = AI.PROVIDERS[st.provider];
 
@@ -666,14 +651,21 @@
     wrap.appendChild(el("p", "note",
       "Выделенный фрагмент и предложение вокруг него отправляются выбранному сервису. " +
       "Ключи хранятся только на этом компьютере."));
+    var wipe = el("button", "ai-more", "Удалить все сохранённые ключи");
+    wipe.type = "button";
+    wipe.onclick = function () {
+      st.keys = {};
+      AI.saveSettings(st);
+      aiReset();
+      render();
+    };
+    wrap.appendChild(wipe);
     return wrap;
   }
 
-  /* ---------- Замена ---------- */
-
   async function replaceWith(text, btn) {
     if (!inWord) {
-      try { navigator.clipboard.writeText(text); setStatus("Скопировано: «<b>" + esc(text) + "</b>»"); } catch (e) { /* нет буфера */ }
+      try { navigator.clipboard.writeText(text); setStatus("Скопировано: «", text, "»"); } catch (e) {}
       return;
     }
     try {
@@ -700,7 +692,7 @@
           range = sel.insertText(text, "Replace");
         }
         ignoreSelUntil = Date.now() + 800;
-        range.select();   // новое слово остаётся выделенным — можно сразу попробовать другой вариант
+        range.select();
         await ctx.sync();
       });
       var used = document.querySelector("#list button.used");
@@ -711,8 +703,6 @@
       setStatus("Не получилось заменить: выделите слово ещё раз");
     }
   }
-
-  /* ---------- Поиск вручную ---------- */
 
   function setupSearch() {
     var timer = null;
@@ -726,8 +716,6 @@
     $("searchForm").addEventListener("submit", function (e) { e.preventDefault(); run(); });
   }
 
-  /* ---------- Старт ---------- */
-
   function debounce(fn, ms) {
     var t = null;
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
@@ -735,11 +723,18 @@
 
   function start() {
     $("version").textContent = "v" + VERSION;
-    $("sources").innerHTML = SOURCES.map(function (s) {
-      return '<span title="' + esc(s.about) + '"><b>' + esc(s.short) + "</b> " + esc(s.name) + "</span>";
-    }).join(" · ");
+    SOURCES.forEach(function (s, i) {
+      var sp = document.createElement("span");
+      sp.title = s.about;
+      var b = document.createElement("b");
+      b.textContent = s.short;
+      sp.appendChild(b);
+      sp.appendChild(document.createTextNode(" " + s.name));
+      if (i) $("sources").appendChild(document.createTextNode(" · "));
+      $("sources").appendChild(sp);
+    });
     setupSearch();
-    cacheDel("abramov-index-v1");   // кэш версии 1.0 больше не нужен
+    cacheDel("abramov-index-v1");
     idleStatus();
     SOURCES.forEach(function (s) { if (!s.live) loadDict(s); });
     if (inWord) setTimeout(onSelectionChanged, 300);

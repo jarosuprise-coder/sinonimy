@@ -145,7 +145,6 @@ footer {
 }
 footer .muted { display: block; margin-top: 4px; opacity: .8; }
 
-/* ---------- Вкладка «ИИ» ---------- */
 .tab.ai:not(.active) { border-style: dashed; }
 .ai-box { display: flex; flex-direction: column; gap: 10px; }
 .ai-what { font-size: 12px; color: var(--muted); }

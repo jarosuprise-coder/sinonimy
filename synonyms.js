@@ -1,8 +1,4 @@
-/*
- * Логика синонимов: построение индекса из словаря Абрамова,
- * поиск начальной формы слова и согласование окончаний прилагательных.
- * Не зависит от Word — работает и в браузере, и в Node (для тестов).
- */
+// Синонимы: индекс словарей, начальная форма слова, согласование окончаний, разбор Викисловаря.
 (function (root) {
   "use strict";
 
@@ -10,9 +6,6 @@
     return String(s).toLowerCase().replace(/ё/g, "е").trim();
   };
 
-  /* ---------- 1. Индекс из словаря ---------- */
-
-  // Чистим одну запись синонима: убираем пометы в скобках, мусор, длинные фразы.
   function cleanSyn(raw) {
     var out = [];
     String(raw).split(";").forEach(function (part) {
@@ -29,8 +22,6 @@
     return out;
   }
 
-  // list — массив wordlist из dictionary.json (egorkaru/synonym_dictionary).
-  // Возвращает объект { "слово": ["синоним", ...] }.
   function buildIndex(list) {
     var direct = new Map(), refs = new Map(), rev = new Map();
     function add(m, k, v) {
@@ -45,7 +36,6 @@
       (e.synonyms || []).forEach(function (s) {
         cleanSyn(s).forEach(function (c) { if (norm(c) !== k) add(direct, k, c); });
       });
-      // Ссылки вида «см. великий, высокий»
       var def = String(e.definition || "").split("||")[0];
       var re = /см\.\s*([^.;|]+)/gi, m;
       while ((m = re.exec(def))) {
@@ -55,7 +45,6 @@
       }
     });
 
-    // Обратные связи: если у «ад» есть синоним «пекло», то у «пекло» будет «ад».
     direct.forEach(function (arr, k) {
       arr.forEach(function (s) { if (s.indexOf(" ") === -1) add(rev, norm(s), k); });
     });
@@ -78,12 +67,7 @@
     return idx;
   }
 
-  /* ---------- 2. Поиск начальной формы ---------- */
-
-  // [окончание формы, [возможные окончания начальной формы], тип]
-  // тип "adj" — по этому правилу умеем согласовывать прилагательные.
   var RULES = [
-    // прилагательные
     ["ыми", ["ый", "ой"], "adj"], ["ими", ["ой", "ий"], "adj"],
     ["ого", ["ый", "ой", "ий"], "adj"], ["его", ["ий"], "adj"],
     ["ому", ["ый", "ой", "ий"], "adj"], ["ему", ["ий"], "adj"],
@@ -94,7 +78,6 @@
     ["ым", ["ый", "ой"], "adj"], ["им", ["ой", "ий"], "adj"],
     ["ых", ["ый", "ой"], "adj"], ["их", ["ой", "ий"], "adj"],
     ["ой", ["ый", "ий"], "adj"], ["ей", ["ий"], "adj"],
-    // глаголы
     ["ает", ["ать"]], ["ают", ["ать"]], ["аешь", ["ать"]], ["аем", ["ать"]], ["аете", ["ать"]], ["аю", ["ать"]],
     ["яет", ["ять"]], ["яют", ["ять"]], ["яешь", ["ять"]], ["яю", ["ять"]],
     ["ует", ["овать"]], ["уют", ["овать"]], ["уешь", ["овать"]],
@@ -108,7 +91,6 @@
     ["ет", ["ать", "еть", "ять", "ить", "ти"]], ["ит", ["ить", "еть"]],
     ["ут", ["ать", "ти", "ыть"]], ["ют", ["ять", "ать", "ить", "еть"]],
     ["ат", ["ать", "ить"]], ["ят", ["ить", "ять", "еть"]],
-    // существительные
     ["ами", ["а", "", "о"]], ["ями", ["я", "ь", "е"]],
     ["ах", ["а", "", "о"]], ["ях", ["я", "ь", "е"]],
     ["ам", ["а", "", "о"]], ["ям", ["я", "ь", "е"]],
@@ -122,7 +104,6 @@
     ["е", ["а", "", "о", "я", "ь"]], ["ой", ["а"]], ["ей", ["я", "ь"]]
   ];
 
-  // Слова, которые правилами не угадать
   var IRREG = {
     "люди": "человек", "людей": "человек", "людям": "человек", "людьми": "человек", "людях": "человек",
     "шел": "идти", "шла": "идти", "шло": "идти", "шли": "идти",
@@ -133,13 +114,10 @@
     "может": "мочь", "могут": "мочь", "хочет": "хотеть", "хотят": "хотеть", "хочу": "хотеть"
   };
 
-  // idx — объект-индекс или функция has(слово) → true/false
   function hasSyn(idx, w) {
     return typeof idx === "function" ? idx(w) : Object.prototype.hasOwnProperty.call(idx, w);
   }
 
-  // Возвращает список найденных начальных форм: [{lemma, rule}], лучшие первыми.
-  // Если idx не передан (null), возвращает все возможные начальные формы (для Викисловаря).
   function findLemmas(idx, word) {
     var w = norm(word);
     var found = [], seen = {};
@@ -171,9 +149,6 @@
     return found;
   }
 
-  /* ---------- 3. Согласование прилагательных ---------- */
-
-  // Приводим окончание формы к «твёрдому» образцу.
   var CANON = { "яя": "ая", "ее": "ое", "ие": "ые", "его": "ого", "ему": "ому", "юю": "ую",
                 "ей": "ой", "им": "ым", "их": "ых", "ими": "ыми" };
 
@@ -196,22 +171,18 @@
     return lemma.slice(0, -2) + e;
   }
 
-  // Подстраиваем синоним под форму исходного слова (только прилагательные).
   function adapt(original, found, syn) {
     if (!found || !found.rule || found.rule[2] !== "adj") return syn;
     var formEnd = found.rule[0];
     if (!adjType(found.lemma)) return syn;
     var canon = CANON[formEnd] || formEnd;
     var parts = syn.split(" ");
-    // Подстраиваем первое слово-прилагательное, остальное оставляем
     if (!adjType(parts[0])) return syn;
     var inf = inflectAdj(parts[0], canon);
     if (!inf) return syn;
     parts[0] = inf;
     return parts.join(" ");
   }
-
-  /* ---------- 4. Регистр ---------- */
 
   function matchCase(original, repl) {
     var letters = original.replace(/[^A-Za-zА-Яа-яЁё]/g, "");
@@ -220,14 +191,10 @@
     return repl;
   }
 
-  /* ---------- 5. Несколько словарей ---------- */
-
-  // Ключ для сравнения слов из разных словарей: регистр, ё/е, пробелы и дефисы не важны.
   function key(s) {
     return norm(s).replace(/[\s \-‐–—]+/g, " ").trim();
   }
 
-  // Словарь из файла dict/*.json: {id, name, g:[[метка, слово...]], h?:{слово:[группы]}}
   function makeDict(data) {
     var g = data.g, index = data.h || null;
     if (!index) {
@@ -250,14 +217,12 @@
     };
   }
 
-  // По какому правилу из слова получилась начальная форма (для согласования окончаний)
   function ruleFor(word, lemma) {
     var all = findLemmas(null, word), l = key(lemma);
     for (var i = 0; i < all.length; i++) if (key(all[i].lemma) === l) return all[i];
     return { lemma: key(lemma), rule: null };
   }
 
-  // Группы синонимов → готовые варианты для вставки (с окончанием и регистром исходного слова)
   function prepare(word, lemmaInfo, groups) {
     var w = key(word), lem = key(lemmaInfo.lemma), seen = {};
     var out = [];
@@ -266,7 +231,6 @@
       grp.words.forEach(function (s) {
         var k = key(s);
         if (!k || k === w || k === lem || seen[k]) return;
-        // «красивый на вид», «внешне красивый» — это то же слово с уточнением, не синоним
         var toks = k.split(" ");
         if (toks.length > 1 && (toks.indexOf(lem) !== -1 || toks.indexOf(w) !== -1)) return;
         var t = adapt(word, lemmaInfo, s);
@@ -280,8 +244,6 @@
     return out;
   }
 
-  // Вкладка «Все словари»: каждое слово ровно один раз, с пометкой, в каких словарях оно есть.
-  // Выше стоят слова, которые есть в нескольких словарях, затем — по месту в списке.
   function merge(results) {
     var map = {}, order = [];
     results.forEach(function (res) {
@@ -297,7 +259,6 @@
         if (e.sources.indexOf(res.id) === -1) { e.sources.push(res.id); e.rank += rank; }
       });
     });
-    // Разные словарные формы могли дать одинаковый текст после согласования — оставляем один
     var byText = {}, out = [];
     order.forEach(function (e) {
       var kt = key(e.text);
@@ -316,8 +277,6 @@
     return out;
   }
 
-  /* ---------- 6. Викисловарь ---------- */
-
   function stripTemplates(s) {
     var prev;
     do { prev = s; s = s.replace(/\{\{[^{}]*\}\}/g, ""); } while (s !== prev);
@@ -327,14 +286,12 @@
     return s.replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1");
   }
 
-  // Разбирает текст статьи Викисловаря: русская часть, значения и синонимы к каждому значению.
   function parseWiki(text) {
     var parts = String(text).split(/^=\s*\{\{-([a-z-]+)-\}\}\s*=\s*$/m);
     var ru = null;
     for (var i = 1; i < parts.length; i += 2) if (parts[i] === "ru") { ru = parts[i + 1]; break; }
     if (ru === null) return [];
 
-    // Омонимы: блоки с заголовком второго уровня («== {{заголовок|(глагол)}} ==»)
     var blocks = ru.split(/^==(?!=)\s*(.*?)\s*==\s*$/m);
     var list = [{ title: "", body: blocks[0] }];
     for (var b = 1; b < blocks.length; b += 2) list.push({ title: blocks[b], body: blocks[b + 1] || "" });
@@ -350,7 +307,6 @@
                  .map(function (l) { return l.replace(/^#\s*/, ""); });
     }
 
-    // Синонимы из шаблона {{семантика|синонимы=...}} внутри строки значения
     function semSyn(line) {
       var at = line.indexOf("{{семантика");
       if (at === -1) return [];
@@ -413,29 +369,7 @@
     return groups;
   }
 
-  /* ---------- 7. Совместимость: один словарь-индекс ---------- */
-
-  // Возвращает { lemmas:[...], current, items:[{text, base}] }
-  function lookup(idx, word, preferLemma) {
-    var lemmas = findLemmas(idx, word);
-    if (!lemmas.length) return { lemmas: [], current: null, items: [] };
-    var cur = lemmas[0];
-    if (preferLemma) {
-      lemmas.forEach(function (l) { if (l.lemma === preferLemma) cur = l; });
-    }
-    var w = norm(word), seenText = {};
-    var items = [];
-    idx[cur.lemma].forEach(function (s) {
-      var t = adapt(word, cur, s);
-      var key = norm(t);
-      if (key === w || key === cur.lemma || seenText[key]) return;
-      seenText[key] = 1;
-      items.push({ base: s, text: matchCase(word, t) });
-    });
-    return { lemmas: lemmas.map(function (l) { return l.lemma; }), current: cur.lemma, items: items };
-  }
-
-  var api = { buildIndex: buildIndex, findLemmas: findLemmas, lookup: lookup,
+  var api = { buildIndex: buildIndex, findLemmas: findLemmas,
               adapt: adapt, inflectAdj: inflectAdj, matchCase: matchCase, norm: norm,
               key: key, makeDict: makeDict, ruleFor: ruleFor, prepare: prepare,
               merge: merge, parseWiki: parseWiki };

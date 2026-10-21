@@ -1,11 +1,7 @@
-/*
- * Перефразирование через бесплатные ИИ-сервисы (OpenAI-совместимый формат запросов).
- * Ключи хранятся только на этом компьютере (localStorage панели) и уходят только выбранному сервису.
- */
+// Вкладка «ИИ»: запросы к OpenAI-совместимым сервисам.
 (function (root) {
   "use strict";
 
-  // Порядок = порядок в списке настроек. avail — что проверено с компьютера пользователя (22.10.2026).
   var PROVIDERS = {
     ovh: {
       name: "OVHcloud AI Endpoints — без ключа",
@@ -126,15 +122,12 @@
     { id: "formal", name: "Официальнее", hint: "в официально-деловом или научном стиле" }
   ];
 
-  /* ---------- Настройки ---------- */
-
   var KEY = "sin-ai";
   function loadSettings() {
     var s = null;
     try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { s = null; }
     s = s || {};
     if (!PROVIDERS[s.provider]) s.provider = "ovh";
-    // в версии 1.2 по умолчанию был Pollinations; если сервис не выбирали вручную, переходим на OVHcloud
     if (!s.chosen && s.provider === "pollinations") s.provider = "ovh";
     s.keys = s.keys || {};
     s.models = s.models || {};
@@ -143,7 +136,7 @@
     return s;
   }
   function saveSettings(s) {
-    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) { /* без сохранения */ }
+    try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {}
   }
 
   function baseOf(s) {
@@ -154,9 +147,17 @@
     var p = PROVIDERS[s.provider];
     return p.url || baseOf(s) + "/chat/completions";
   }
+  function insecure(url) {
+    var m = /^http:\/\/([^/:]+|\[[^\]]+\])/i.exec(url || "");
+    return !!m && !/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(m[1]);
+  }
+
   function headers(s) {
     var h = { "Content-Type": "application/json" };
     var k = (s.keys[s.provider] || "").trim();
+    if (k && insecure(baseOf(s))) {
+      throw new Error("Ключ нельзя отправлять по незащищённому адресу http://. Используйте https:// или localhost.");
+    }
     if (k) h.Authorization = "Bearer " + k;
     if (s.provider === "openrouter") h["X-Title"] = "Sinonimy for Word";
     return h;
@@ -189,7 +190,6 @@
       if (r.status === 401 || r.status === 403) msg = "Ключ не подошёл (" + r.status + "). Проверьте ключ в настройках. " + msg;
       else if (r.status === 429 || r.status === 402 || /limit/i.test(msg)) {
         var err = new Error(s_limitMessage(url, msg));
-        // сколько ждать до повтора: у OVHcloud без ключа окно — минута, у Pollinations — 30 секунд
         err.retryAfter = /ovh/.test(url) ? 30 : /pollinations/.test(url) ? 30 : Math.min(60, +r.headers.get("retry-after") || 20);
         throw err;
       }
@@ -199,7 +199,6 @@
     return data;
   }
 
-  // Список моделей у сервиса: бесплатные/подходящие, лучшие первыми
   async function listModels(s) {
     var p = PROVIDERS[s.provider];
     if (p.fixedModels) return p.fixedModels.slice();
@@ -215,8 +214,6 @@
     ids.sort(function (a, b) { return rank(a) - rank(b) || a.localeCompare(b); });
     return ids;
   }
-
-  /* ---------- Запрос ---------- */
 
   function buildMessages(fragment, context, styleId, count) {
     var style = STYLES.filter(function (x) { return x.id === styleId; })[0] || STYLES[0];
@@ -241,7 +238,6 @@
     ];
   }
 
-  // Достаём варианты из ответа модели: JSON-массив или список строк
   function parseVariants(text, fragment) {
     text = String(text || "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
     var list = null;
@@ -259,10 +255,8 @@
       if (typeof v !== "string") return;
       v = v.replace(/^["«»'“”„\s]+|["«»'“”„\s]+$/g, "").replace(/\s+/g, " ").trim();
       if (!v || v.length > 400 || /:$/.test(v) || /^(вот|ответ|варианты?)[\s:.,!]*$/i.test(v)) return;
-      // знаки по краям фрагмента Word сохраняет сам, лишняя точка в конце не нужна
       if (!/[.!?…]$/.test(fragment)) v = v.replace(/[.;,:]+$/, "").trim();
       v = v.replace(/^["«»'“”„\s]+|["«»'“”„\s]+$/g, "");
-      // регистр первой буквы как у исходного фрагмента
       var f0 = String(fragment).charAt(0);
       if (f0 && f0 === f0.toLowerCase() && f0 !== f0.toUpperCase() && v.charAt(1) !== v.charAt(1).toUpperCase()) {
         v = v.charAt(0).toLowerCase() + v.slice(1);

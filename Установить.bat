@@ -7,7 +7,7 @@ set "KEY=HKCU\Software\Microsoft\Office\16.0\WEF\Developer"
 set "WEF=%LOCALAPPDATA%\Microsoft\Office\16.0\Wef"
 
 echo.
-echo  Установка надстройки «Синонимы» для Word, версия 1.2
+echo  Установка надстройки «Синонимы» для Word, версия 1.2.3
 echo  ---------------------------------------------------
 echo.
 
@@ -37,9 +37,8 @@ if errorlevel 1 (
 )
 echo  [OK] Манифест скопирован в %DIR%
 
-rem Убираем старые подключения «Синонимов» из других папок, чтобы в Word не было дублей
 set "SIN_KEEP=%DIR%\manifest.xml"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$k='HKCU:\Software\Microsoft\Office\16.0\WEF\Developer';$keep=$env:SIN_KEEP;$c=0;if(Test-Path $k){$p=Get-ItemProperty $k;foreach($n in $p.PSObject.Properties.Name){if($n -like 'PS*'){continue};$v=[string]$p.$n;if($keep -and $v -eq $keep){continue};$d=$false;if($v -match 'sinonim'){$d=$true}elseif($v -like '*.xml' -and (Test-Path -LiteralPath $v)){try{if((Get-Content -LiteralPath $v -Raw) -match '47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8'){$d=$true}}catch{}};if($d){Remove-ItemProperty -Path $k -Name $n -ErrorAction SilentlyContinue;$c++}}};exit $c" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$k='HKCU:\Software\Microsoft\Office\16.0\WEF\Developer';$keep=$env:SIN_KEEP;$c=0;if(Test-Path $k){$p=Get-ItemProperty $k;foreach($n in $p.PSObject.Properties.Name){if($n -like 'PS*'){continue};$v=[string]$p.$n;if($keep -and $v -eq $keep){continue};$d=$false;if($v -like '*.xml'){if(Test-Path -LiteralPath $v){try{if((Get-Content -LiteralPath $v -Raw) -match '47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8'){$d=$true}}catch{}}elseif($v -match 'sinonim'){$d=$true}};if($d){Remove-ItemProperty -Path $k -Name $n -ErrorAction SilentlyContinue;$c++}}};exit $c" >nul 2>&1
 set "REMOVED=%errorlevel%"
 if not "%REMOVED%"=="0" echo  [OK] Убраны старые копии надстройки: %REMOVED%
 
