@@ -4,7 +4,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.2.1";
+  var VERSION = "1.2.2";
   var DICT_VER = "2";   // меняется, когда обновляются файлы dict/*.json
 
   // Порядок вкладок. short — пометка источника на вкладке «Все».
@@ -178,7 +178,7 @@
   /* ---------- Поиск синонимов ---------- */
 
   function show(word, target, prefer, keepWiki) {
-    var sameWord = state.word === word && state.prefer === prefer;
+    var sameWord = state.word === word && (state.prefer || null) === (prefer || null);
     state.word = word;
     state.target = target;
     state.prefer = prefer || null;
@@ -324,7 +324,7 @@
     nav.innerHTML = "";
     nav.hidden = false;
     var aiDef = { id: "ai", name: "✨ ИИ", title: "Перефразирование и синонимы по контексту через ИИ",
-                  count: ai.status === "loading" ? "…" : ai.status === "error" ? "!" : ai.variants.length || "" };
+                  count: ai.status === "loading" || ai.status === "waiting" ? "…" : ai.status === "error" ? "!" : ai.variants.length || "" };
     var defs = state.phrase ? [aiDef] : [{ id: "all", name: "Все", count: allCount }].concat(SOURCES.map(function (s) {
       var res = state.results[s.id], c = countOf(res);
       var busy = s.live ? state.wiki === "loading" : dicts[s.id] === "loading";
@@ -469,14 +469,15 @@
     return [st.provider, st.models[st.provider] || "", ai.style, st.count, state.word, state.context].join("\u0001");
   }
 
-  async function aiRun(force) {
+  async function aiRun(force, isRetry) {
     var word = state.word;
     if (!word) return;
+    if (!isRetry) ai.retries = 0;
     var k = aiCacheKey();
     if (!force && ai.cache[k]) {
       ai.status = "done"; ai.variants = ai.cache[k].variants; ai.model = ai.cache[k].model; render(); return;
     }
-    var id = ++ai.reqId;
+    var id = isRetry ? ai.reqId : ++ai.reqId;
     ai.status = "loading"; ai.error = ""; ai.variants = [];
     render();
     try {
@@ -486,9 +487,28 @@
       ai.status = "done"; ai.variants = res.variants; ai.model = res.model;
     } catch (e) {
       if (id !== ai.reqId) return;
+      // лимит бесплатного сервиса: подождать и повторить сам (не больше двух раз)
+      if (e && e.retryAfter && (ai.retries || 0) < 2) {
+        ai.retries = (ai.retries || 0) + 1;
+        ai.status = "waiting"; ai.waitUntil = Date.now() + e.retryAfter * 1000;
+        render();
+        var tick = setInterval(function () {
+          if (id !== ai.reqId || ai.status !== "waiting") { clearInterval(tick); return; }
+          if (Date.now() >= ai.waitUntil) { clearInterval(tick); aiRun(true, true); return; }
+          var w = document.querySelector(".ai-wait");
+          if (w) w.textContent = waitText();
+        }, 1000);
+        return;
+      }
       ai.status = "error"; ai.error = e && e.message || String(e);
     }
+    ai.retries = 0;
     render();
+  }
+
+  function waitText() {
+    var sec = Math.max(0, Math.ceil((ai.waitUntil - Date.now()) / 1000));
+    return "Бесплатный лимит сервиса: повторю запрос автоматически через " + sec + " с…";
   }
 
   function el(tag, cls, text) {
@@ -513,7 +533,7 @@
       var b = el("button", "ai-style" + (ai.style === sty.id && ai.status !== "idle" ? " active" : ""), sty.name);
       b.type = "button";
       b.title = "Предложить варианты: " + sty.hint;
-      b.disabled = ai.status === "loading";
+      b.disabled = ai.status === "loading" || ai.status === "waiting";
       b.onclick = function () { ai.style = sty.id; aiRun(false); };
       styles.appendChild(b);
     });
@@ -523,6 +543,8 @@
       box.appendChild(el("p", "note", "Нажмите стиль, чтобы получить варианты. Каждое нажатие — один запрос к сервису."));
     } else if (ai.status === "loading") {
       box.appendChild(el("p", "note ai-wait", "Спрашиваю " + prov.name.replace(/ — .*/, "") + "…"));
+    } else if (ai.status === "waiting") {
+      box.appendChild(el("p", "note ai-wait", waitText()));
     } else if (ai.status === "error") {
       box.appendChild(el("p", "ai-error", ai.error));
     } else {

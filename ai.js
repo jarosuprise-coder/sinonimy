@@ -14,8 +14,8 @@
       signup: "https://endpoints.ai.cloud.ovh.net/",
       prefer: [/llama-3_3-70b/i, /mistral-small/i, /qwen3\.\d+-27b/i, /gpt-oss-120b/i, /qwen/i],
       skip: /guard|vl|diffusion|whisper|embed|bge|xtts|nvr|tts|sdxl|rerank|9b|20b|nemo/i,
-      note: "Работает сразу, без регистрации: Llama 3.3 70B и другие открытые модели, ответ за несколько секунд. " +
-            "Без ключа есть ограничение по числу запросов в минуту."
+      note: "Работает сразу, без регистрации: Llama 3.3 70B и другие открытые модели, ответ за 2–4 секунды. " +
+            "Без ключа — около 2 запросов в минуту (при превышении панель сама подождёт и повторит)."
     },
     pollinations: {
       name: "Pollinations — без ключа",
@@ -167,7 +167,7 @@
       return "Pollinations без ключа отвечает не чаще раза в 30 секунд. Подождите немного или выберите " +
              "в настройках ⚙ сервис OVHcloud (тоже без ключа) или Groq с бесплатным ключом.";
     }
-    if (/ovh/.test(url)) return "OVHcloud без ключа ограничивает число запросов в минуту. Подождите минуту или выберите другой сервис в настройках ⚙.";
+    if (/ovh/.test(url)) return "OVHcloud без ключа отвечает примерно на 2 запроса в минуту. Подождите или выберите другой сервис в настройках ⚙.";
     return "Достигнут лимит бесплатного тарифа. Подождите минуту или выберите другой сервис в настройках ⚙.";
   }
 
@@ -188,7 +188,10 @@
       if (typeof msg !== "string") msg = JSON.stringify(msg).slice(0, 200);
       if (r.status === 401 || r.status === 403) msg = "Ключ не подошёл (" + r.status + "). Проверьте ключ в настройках. " + msg;
       else if (r.status === 429 || r.status === 402 || /limit/i.test(msg)) {
-        msg = s_limitMessage(url, msg);
+        var err = new Error(s_limitMessage(url, msg));
+        // сколько ждать до повтора: у OVHcloud без ключа окно — минута, у Pollinations — 30 секунд
+        err.retryAfter = /ovh/.test(url) ? 30 : /pollinations/.test(url) ? 30 : Math.min(60, +r.headers.get("retry-after") || 20);
+        throw err;
       }
       else if (/location|region|country/i.test(msg)) msg = "Сервис недоступен из вашей страны. Выберите другой сервис или включите VPN.";
       throw new Error(msg);
