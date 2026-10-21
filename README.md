@@ -29,13 +29,20 @@
 
 | Сервис (⚙ Настройки) | Что нужно | Особенности |
 |---|---|---|
-| **Pollinations** | ничего, работает сразу | медленно (до 30 секунд), не чаще раза в 30 секунд, качество среднее |
-| **Groq** | бесплатный ключ: [console.groq.com/keys](https://console.groq.com/keys) | быстро, около 1000 запросов в день |
+| **OVHcloud AI Endpoints** (по умолчанию) | ничего | Llama 3.3 70B и другие открытые модели, ответ за 3–5 секунд, лимит запросов в минуту |
+| **Pollinations** | ничего | медленно (до 30 секунд), не чаще раза в 30 секунд, качество среднее |
+| **Groq** | бесплатный ключ: [console.groq.com/keys](https://console.groq.com/keys) | очень быстро, около 1000 запросов в день |
 | **OpenRouter** | бесплатный ключ: [openrouter.ai/keys](https://openrouter.ai/keys) | только бесплатные модели (`:free`), около 50 запросов в день |
-| **Google Gemini** | бесплатный ключ: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | из России может понадобиться VPN |
+| **Google Gemini** | бесплатный ключ: [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | из России нужен VPN |
 | **Mistral** | бесплатный ключ: [console.mistral.ai](https://console.mistral.ai/api-keys) | нужно подтвердить телефон |
-| **Hugging Face** | бесплатный токен: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | небольшой месячный лимит |
+| **Hugging Face** | бесплатный токен: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | DeepSeek, Qwen, Gemma, Llama; небольшой месячный лимит |
+| **Cohere** | бесплатный пробный ключ: [dashboard.cohere.com](https://dashboard.cohere.com/api-keys) | около 1000 запросов в месяц, только некоммерческое использование |
+| **SiliconFlow** | бесплатный ключ: [cloud.siliconflow.com](https://cloud.siliconflow.com/account/ak) | бесплатны небольшие модели (Qwen 7–8B, GLM 9B) |
+| **Chutes** | ключ: [chutes.ai](https://chutes.ai/app/api) | бесплатный доступ ограничен, условия часто меняются |
+| **DeepSeek** | ключ и пополненный баланс: [platform.deepseek.com](https://platform.deepseek.com/api_keys) | не бесплатно, но очень дёшево; бесплатно DeepSeek есть в Hugging Face |
 | **Свой адрес** | например Ollama: `http://localhost:11434/v1` | модель на своём компьютере, текст никуда не уходит |
+
+Все сервисы из таблицы отвечают на запросы панели (проверено 22.10.2026). Не подошли и не включены: Cerebras, NVIDIA, GitHub Models, Cloudflare, SambaNova, Scaleway, GigaChat и YandexGPT — они не принимают запросы прямо из панели Word.
 
 Как подключить ключ: **✨ ИИ → ⚙ Настройки** → выберите сервис → вставьте ключ → «Загрузить список» (модель выберется сама, её можно поменять). Ключи хранятся только на вашем компьютере и отправляются только выбранному сервису. Лимиты бесплатных тарифов меняют сами сервисы.
 

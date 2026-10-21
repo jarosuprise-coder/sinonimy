@@ -38,14 +38,21 @@ LibreOffice  - тезаурус из LibreOffice: словарь АОТ и Аб�
 Для одного слова вкладка «✨ ИИ» подбирает синонимы по смыслу предложения
 и сразу в нужной форме (падеж, число, время).
 
-Сервис выбирается в «✨ ИИ» - «⚙ Настройки»:
-  Pollinations  - работает сразу, без ключа. Медленно (до 30 секунд),
-                  не чаще раза в 30 секунд, качество среднее.
-  Groq          - бесплатный ключ на console.groq.com/keys. Быстро, около 1000 запросов в день.
-  OpenRouter    - бесплатный ключ на openrouter.ai/keys. Около 50 запросов в день.
-  Google Gemini - бесплатный ключ на aistudio.google.com/apikey. Из России может понадобиться VPN.
-  Mistral       - бесплатный ключ на console.mistral.ai (нужно подтвердить телефон).
-  Hugging Face  - бесплатный токен на huggingface.co/settings/tokens.
+Сервис выбирается в «✨ ИИ» - «⚙ Настройки». Без ключа:
+  OVHcloud AI Endpoints - по умолчанию. Llama 3.3 70B, ответ за 3-5 секунд.
+  Pollinations          - медленно (до 30 секунд), не чаще раза в 30 секунд.
+С бесплатным ключом:
+  Groq          - console.groq.com/keys. Очень быстро, около 1000 запросов в день.
+  OpenRouter    - openrouter.ai/keys. Только бесплатные модели, около 50 запросов в день.
+  Google Gemini - aistudio.google.com/apikey. Из России нужен VPN.
+  Mistral       - console.mistral.ai. Нужно подтвердить телефон.
+  Hugging Face  - huggingface.co/settings/tokens. DeepSeek, Qwen, Gemma, Llama.
+  Cohere        - dashboard.cohere.com. Около 1000 запросов в месяц.
+  SiliconFlow   - cloud.siliconflow.com. Бесплатны небольшие модели Qwen и GLM.
+  Chutes        - chutes.ai. Бесплатный доступ ограничен.
+Платно, но дёшево:
+  DeepSeek      - platform.deepseek.com, нужен пополненный баланс.
+Своё:
   Свой адрес    - например Ollama на своём компьютере: http://localhost:11434/v1
 
 Как подключить ключ: зарегистрируйтесь на сайте сервиса, создайте ключ,

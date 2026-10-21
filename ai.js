@@ -5,22 +5,24 @@
 (function (root) {
   "use strict";
 
+  // Порядок = порядок в списке настроек. avail — что проверено с компьютера пользователя (22.10.2026).
   var PROVIDERS = {
+    ovh: {
+      name: "OVHcloud AI Endpoints — без ключа",
+      base: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+      key: "optional",
+      signup: "https://endpoints.ai.cloud.ovh.net/",
+      prefer: [/llama-3_3-70b/i, /mistral-small/i, /qwen3\.\d+-27b/i, /gpt-oss-120b/i, /qwen/i],
+      skip: /guard|vl|diffusion|whisper|embed|bge|xtts|nvr|tts|sdxl|rerank|9b|20b|nemo/i,
+      note: "Работает сразу, без регистрации: Llama 3.3 70B и другие открытые модели, ответ за несколько секунд. " +
+            "Без ключа есть ограничение по числу запросов в минуту."
+    },
     pollinations: {
       name: "Pollinations — без ключа",
       url: "https://text.pollinations.ai/openai",
       key: false,
       fixedModels: ["openai"],
-      note: "Работает сразу, без регистрации, но медленно (до 30 секунд) и не чаще раза в 30 секунд. Качество среднее. Для удобной работы подключите бесплатный ключ Groq или OpenRouter."
-    },
-    openrouter: {
-      name: "OpenRouter — бесплатные модели",
-      base: "https://openrouter.ai/api/v1",
-      key: true,
-      signup: "https://openrouter.ai/keys",
-      freeOnly: true,
-      prefer: [/gemma-4-31b/i, /gemma/i, /nemotron.*super/i, /deepseek/i, /qwen/i, /llama/i],
-      note: "Бесплатная регистрация, ключ без карты. Около 50 запросов в день."
+      note: "Работает без регистрации, но медленно (до 30 секунд) и не чаще раза в 30 секунд. Качество среднее."
     },
     groq: {
       name: "Groq",
@@ -29,7 +31,16 @@
       signup: "https://console.groq.com/keys",
       prefer: [/llama-3\.3-70b/i, /llama-4/i, /gpt-oss-120b/i, /qwen/i, /llama/i],
       skip: /whisper|guard|tts|orpheus|playai|compound/i,
-      note: "Бесплатный ключ, очень быстрые ответы. Около 1000 запросов в день."
+      note: "Бесплатный ключ (вход через Google или GitHub), очень быстрые ответы, около 1000 запросов в день."
+    },
+    openrouter: {
+      name: "OpenRouter — бесплатные модели",
+      base: "https://openrouter.ai/api/v1",
+      key: true,
+      signup: "https://openrouter.ai/keys",
+      freeOnly: true,
+      prefer: [/deepseek/i, /gemma-4-31b/i, /gemma/i, /nemotron.*super/i, /qwen/i, /llama/i],
+      note: "Бесплатный ключ без карты, в списке только бесплатные модели (:free). Около 50 запросов в день."
     },
     gemini: {
       name: "Google Gemini",
@@ -38,7 +49,7 @@
       signup: "https://aistudio.google.com/apikey",
       prefer: [/gemini-[\d.]+-flash$/i, /gemini-[\d.]+-flash-lite$/i, /flash/i],
       skip: /image|tts|audio|live|embedding|aqa|vision|veo|imagen/i,
-      note: "Бесплатный ключ в Google AI Studio. Из России может понадобиться VPN."
+      note: "Бесплатный ключ в Google AI Studio. Из России нужен VPN."
     },
     mistral: {
       name: "Mistral",
@@ -46,17 +57,58 @@
       key: true,
       signup: "https://console.mistral.ai/api-keys",
       prefer: [/mistral-small-latest/i, /mistral-medium-latest/i, /mistral-large-latest/i, /small/i],
-      skip: /embed|moderation|ocr|codestral|pixtral|voxtral/i,
-      note: "Бесплатный тариф Experiment (нужно подтвердить телефон)."
+      skip: /embed|moderation|ocr|codestral|pixtral|voxtral|devstral/i,
+      note: "Бесплатный тариф Experiment, нужно подтвердить номер телефона."
     },
     hf: {
       name: "Hugging Face",
       base: "https://router.huggingface.co/v1",
       key: true,
       signup: "https://huggingface.co/settings/tokens",
-      prefer: [/gemma-4-31b/i, /qwen3\.\d+-27b/i, /llama-3\.3-70b/i, /deepseek-v4.*flash/i, /gemma/i, /qwen/i],
+      prefer: [/deepseek-v4.*flash/i, /gemma-4-31b/i, /qwen3\.\d+-27b/i, /llama-3\.3-70b/i, /gemma/i, /qwen/i],
       skip: /coder|vl|vision|omni|distill/i,
-      note: "Бесплатный токен с небольшим ежемесячным лимитом."
+      note: "Бесплатный токен с небольшим ежемесячным лимитом. Есть DeepSeek, Qwen, Gemma, Llama."
+    },
+    cohere: {
+      name: "Cohere",
+      base: "https://api.cohere.ai/compatibility/v1",
+      modelsUrl: "https://api.cohere.ai/v1/models?endpoint=chat",
+      key: true,
+      signup: "https://dashboard.cohere.com/api-keys",
+      defaultModel: "command-a-03-2025",
+      prefer: [/^command-a-\d/i, /command-r-plus/i, /command-r/i],
+      skip: /vision|reasoning|translate|embed|rerank|light|nightly/i,
+      note: "Бесплатный пробный ключ (Trial), около 1000 запросов в месяц, только для некоммерческого использования."
+    },
+    siliconflow: {
+      name: "SiliconFlow",
+      base: "https://api.siliconflow.com/v1",
+      modelsUrl: "https://api.siliconflow.com/v1/models?type=text&sub_type=chat",
+      key: true,
+      signup: "https://cloud.siliconflow.com/account/ak",
+      defaultModel: "Qwen/Qwen2.5-7B-Instruct",
+      prefer: [/qwen2\.5-7b-instruct$/i, /qwen3-8b$/i, /glm-4.*9b/i],
+      note: "Бесплатный ключ. Бесплатны небольшие модели (Qwen 7–8B, GLM 9B), на сайте они помечены Free."
+    },
+    chutes: {
+      name: "Chutes",
+      base: "https://llm.chutes.ai/v1",
+      key: true,
+      signup: "https://chutes.ai/app/api",
+      prefer: [/deepseek-v3/i, /deepseek/i, /qwen3/i, /llama/i],
+      skip: /coder|vl|vision|embed/i,
+      note: "Ключ после регистрации. Бесплатный доступ ограничен по числу запросов в день, условия часто меняются."
+    },
+    deepseek: {
+      name: "DeepSeek",
+      base: "https://api.deepseek.com",
+      key: true,
+      signup: "https://platform.deepseek.com/api_keys",
+      defaultModel: "deepseek-chat",
+      prefer: [/^deepseek-chat$/i, /chat/i],
+      skip: /reasoner/i,
+      note: "Официальный API DeepSeek: не бесплатный, но очень дешёвый (нужно пополнить баланс). " +
+            "Бесплатно DeepSeek доступен через Hugging Face и иногда через OpenRouter."
     },
     custom: {
       name: "Свой адрес (Ollama и др.)",
@@ -81,7 +133,7 @@
     var s = null;
     try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { s = null; }
     s = s || {};
-    if (!PROVIDERS[s.provider]) s.provider = "pollinations";
+    if (!PROVIDERS[s.provider]) s.provider = "ovh";
     s.keys = s.keys || {};
     s.models = s.models || {};
     s.customBase = s.customBase || "";
@@ -110,9 +162,10 @@
 
   function s_limitMessage(url, msg) {
     if (/pollinations/.test(url)) {
-      return "Pollinations без ключа отвечает не чаще раза в 30 секунд. Подождите немного или подключите " +
-             "бесплатный ключ Groq или OpenRouter в настройках ⚙ — там ответы быстрее и лучше.";
+      return "Pollinations без ключа отвечает не чаще раза в 30 секунд. Подождите немного или выберите " +
+             "в настройках ⚙ сервис OVHcloud (тоже без ключа) или Groq с бесплатным ключом.";
     }
+    if (/ovh/.test(url)) return "OVHcloud без ключа ограничивает число запросов в минуту. Подождите минуту или выберите другой сервис в настройках ⚙.";
     return "Достигнут лимит бесплатного тарифа. Подождите минуту или выберите другой сервис в настройках ⚙.";
   }
 
@@ -145,11 +198,13 @@
   async function listModels(s) {
     var p = PROVIDERS[s.provider];
     if (p.fixedModels) return p.fixedModels.slice();
-    var data = await fetchJson(baseOf(s) + "/models", { headers: headers(s) }, 20000);
+    var data = await fetchJson(p.modelsUrl || baseOf(s) + "/models", { headers: headers(s) }, 20000);
     var ids = (data.data || data.models || []).map(function (m) {
-      if (p.freeOnly && !/:free$/.test(m.id)) return null;
-      return String(m.id || m.name || "").replace(/^models\//, "");
+      var id = String(m.id || m.name || "");
+      if (p.freeOnly && !/:free$/.test(id)) return null;
+      return id.replace(/^models\//, "");
     }).filter(function (id) { return id && !(p.skip && p.skip.test(id)); });
+    if (!ids.length && p.defaultModel) ids = [p.defaultModel];
     var prefer = p.prefer || [];
     function rank(id) { for (var i = 0; i < prefer.length; i++) if (prefer[i].test(id)) return i; return prefer.length; }
     ids.sort(function (a, b) { return rank(a) - rank(b) || a.localeCompare(b); });
@@ -202,6 +257,13 @@
       // знаки по краям фрагмента Word сохраняет сам, лишняя точка в конце не нужна
       if (!/[.!?…]$/.test(fragment)) v = v.replace(/[.;,:]+$/, "").trim();
       v = v.replace(/^["«»'“”„\s]+|["«»'“”„\s]+$/g, "");
+      // регистр первой буквы как у исходного фрагмента
+      var f0 = String(fragment).charAt(0);
+      if (f0 && f0 === f0.toLowerCase() && f0 !== f0.toUpperCase() && v.charAt(1) !== v.charAt(1).toUpperCase()) {
+        v = v.charAt(0).toLowerCase() + v.slice(1);
+      } else if (f0 && f0 !== f0.toLowerCase()) {
+        v = v.charAt(0).toUpperCase() + v.slice(1);
+      }
       var k = key(v);
       if (!k || seen[k]) return;
       seen[k] = 1;
@@ -218,7 +280,9 @@
     if (p.custom && !baseOf(s)) throw new Error("Укажите адрес сервиса в настройках ⚙.");
     var model = s.models[s.provider];
     if (!model) {
-      var ms = await listModels(s);
+      var ms = [];
+      try { ms = await listModels(s); } catch (e) { if (!p.defaultModel) throw e; }
+      if (!ms.length && p.defaultModel) ms = [p.defaultModel];
       if (!ms.length) throw new Error("У сервиса не нашлось подходящих моделей.");
       model = s.models[s.provider] = ms[0];
       saveSettings(s);
