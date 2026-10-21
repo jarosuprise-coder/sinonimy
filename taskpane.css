@@ -144,3 +144,53 @@ footer {
   color: var(--muted);
 }
 footer .muted { display: block; margin-top: 4px; opacity: .8; }
+
+/* ---------- Вкладка «ИИ» ---------- */
+.tab.ai:not(.active) { border-style: dashed; }
+.ai-box { display: flex; flex-direction: column; gap: 10px; }
+.ai-what { font-size: 12px; color: var(--muted); }
+.ai-styles { display: flex; flex-wrap: wrap; gap: 6px; }
+.ai-style, .ai-more, .ai-gear {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.ai-style:hover, .ai-more:hover, .ai-gear:hover { background: var(--chip); }
+.ai-style.active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.ai-style:disabled { opacity: .5; cursor: default; }
+.ai-more { align-self: flex-start; }
+.ai-gear { border: 0; padding: 2px 4px; color: var(--accent); }
+.ai-error { margin: 0; padding: 8px 10px; border-radius: 6px; background: rgba(200, 60, 60, .12); color: var(--fg); font-size: 13px; }
+.ai-wait::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 6px; border: 2px solid var(--line);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.variants { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.variant {
+  width: 100%;
+  font: inherit;
+  text-align: left;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--chip);
+  color: var(--fg);
+  cursor: pointer;
+}
+.variant:hover, .variant:focus-visible { background: var(--chip-hover); outline: none; }
+.variant.used { background: var(--accent); color: var(--accent-fg); }
+.ai-foot { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 8px; }
+.ai-settings { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.ai-settings label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.ai-settings select, .ai-settings input {
+  font: inherit; font-size: 13px; padding: 6px 8px; color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; min-width: 0;
+}
+.ai-settings a { color: var(--accent); }
+.ai-row { display: flex; gap: 6px; }
+.ai-row select { flex: 1; }
+.ai-settings .note { margin: 0; font-size: 12px; }

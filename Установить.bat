@@ -7,7 +7,7 @@ set "KEY=HKCU\Software\Microsoft\Office\16.0\WEF\Developer"
 set "WEF=%LOCALAPPDATA%\Microsoft\Office\16.0\Wef"
 
 echo.
-echo  Установка надстройки «Синонимы» для Word, версия 1.1
+echo  Установка надстройки «Синонимы» для Word, версия 1.2
 echo  ---------------------------------------------------
 echo.
 

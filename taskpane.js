@@ -1,9 +1,10 @@
 /* Панель «Синонимы» для Word: следит за выделением, показывает синонимы из нескольких словарей,
-   заменяет слово. Вкладки: «Все» (без повторов) и по одному словарю. */
+   заменяет слово. Вкладки: «Все» (без повторов), по одному словарю и «ИИ» — перефразирование
+   фраз и подбор синонимов по контексту через бесплатные ИИ-сервисы (ai.js). */
 (function () {
   "use strict";
 
-  var VERSION = "1.1";
+  var VERSION = "1.2";
   var DICT_VER = "2";   // меняется, когда обновляются файлы dict/*.json
 
   // Порядок вкладок. short — пометка источника на вкладке «Все».
@@ -22,7 +23,10 @@
 
   var dicts = {};          // id → словарь | "loading" | "error"
   var wikiCache = {};      // ключ запроса → {title, groups} | null
-  var state = { word: null, target: null, prefer: null, cur: null, lemmas: [], results: {}, wiki: "idle", reqId: 0 };
+  var state = { word: null, target: null, prefer: null, cur: null, lemmas: [], results: {}, wiki: "idle", reqId: 0,
+                phrase: false, context: "" };
+  var ai = { settings: AI.loadSettings(), style: "same", status: "idle", variants: [], error: "", model: "",
+             reqId: 0, cache: {}, open: false, models: null, forKey: "" };
   var tab = readTab();
   var ignoreSelUntil = 0;
   var inWord = false;
@@ -178,6 +182,15 @@
     state.word = word;
     state.target = target;
     state.prefer = prefer || null;
+    state.phrase = /\s/.test(word.trim());
+    if (!sameWord) aiReset();
+
+    if (state.phrase) {                // фраза: словари не нужны, только вкладка «ИИ»
+      state.reqId++;
+      state.lemmas = []; state.cur = null; state.results = {}; state.wiki = "idle";
+      render();
+      return;
+    }
 
     var lemmas = Syn.findLemmas(hasLocal, word);
     var cur = lemmas[0] || null;
@@ -222,6 +235,13 @@
 
   function render() {
     var word = state.word;
+    if (state.phrase) {
+      renderTabs(0);
+      $("lemmas").hidden = true;
+      setStatus("Фраза: «<b>" + esc(word.length > 80 ? word.slice(0, 80) + "…" : word) + "</b>»");
+      renderAI();
+      return;
+    }
     var all = Syn.merge(ordered());
     renderTabs(all.length);
 
@@ -240,7 +260,9 @@
 
     var list = $("list");
     list.innerHTML = "";
-    if (tab === "all") {
+    if (tab === "ai") {
+      renderAI();
+    } else if (tab === "all") {
       list.appendChild(chips(all, true));
     } else {
       var res = state.results[tab];
@@ -301,21 +323,24 @@
     var nav = $("tabs");
     nav.innerHTML = "";
     nav.hidden = false;
-    var defs = [{ id: "all", name: "Все", count: allCount }].concat(SOURCES.map(function (s) {
+    var aiDef = { id: "ai", name: "✨ ИИ", title: "Перефразирование и синонимы по контексту через ИИ",
+                  count: ai.status === "loading" ? "…" : ai.status === "error" ? "!" : ai.variants.length || "" };
+    var defs = state.phrase ? [aiDef] : [{ id: "all", name: "Все", count: allCount }].concat(SOURCES.map(function (s) {
       var res = state.results[s.id], c = countOf(res);
       var busy = s.live ? state.wiki === "loading" : dicts[s.id] === "loading";
       var err = s.live ? state.wiki === "error" : dicts[s.id] === "error";
       return { id: s.id, name: s.name, count: busy ? "…" : err ? "!" : c, title: s.about };
-    }));
+    })).concat([aiDef]);
+    var active = state.phrase ? "ai" : tab;
     defs.forEach(function (d) {
       var b = document.createElement("button");
       b.type = "button";
       b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", d.id === tab ? "true" : "false");
-      b.className = "tab" + (d.id === tab ? " active" : "") + (d.count === 0 ? " empty" : "");
+      b.setAttribute("aria-selected", d.id === active ? "true" : "false");
+      b.className = "tab" + (d.id === active ? " active" : "") + (d.count === 0 ? " empty" : "") + (d.id === "ai" ? " ai" : "");
       if (d.title) b.title = d.title;
       b.innerHTML = esc(d.name) + ' <span class="cnt">' + esc(d.count) + "</span>";
-      b.onclick = function () { tab = d.id; saveTab(tab); render(); };
+      b.onclick = function () { if (state.phrase) return; tab = d.id; saveTab(tab); render(); };
       nav.appendChild(b);
     });
   }
@@ -378,6 +403,29 @@
 
   /* ---------- Реакция на выделение ---------- */
 
+  // Предложение вокруг фрагмента [start, end) в тексте абзаца — контекст для ИИ
+  function sentenceAround(text, start, end) {
+    var a = start, b = end;
+    while (a > 0 && !/[.!?…]/.test(text[a - 1])) a--;
+    while (b < text.length && !/[.!?…]/.test(text[b])) b++;
+    if (b < text.length) b++;
+    var s = text.slice(a, b).replace(/\s+/g, " ").trim();
+    if (s.length > 600) s = text.slice(Math.max(0, start - 250), Math.min(text.length, end + 250)).replace(/\s+/g, " ").trim();
+    return s;
+  }
+
+  async function selectionContext(ctx, sel, core, pre) {
+    try {
+      var para = sel.paragraphs.getFirst();
+      para.load("text");
+      var before = para.getRange("Start").expandTo(sel.getRange("Start"));
+      before.load("text");
+      await ctx.sync();
+      var start = before.text.length + (pre || "").length;
+      return sentenceAround(para.text, start, start + core.length);
+    } catch (e) { return ""; }
+  }
+
   async function onSelectionChanged() {
     if (!anyLoaded() || Date.now() < ignoreSelUntil) return;
     try {
@@ -388,21 +436,215 @@
         if (!sel.isEmpty) {
           var p = splitEdges(sel.text);
           if (!p.core) return;
-          if (/\s/.test(p.core)) {
+          if (p.core.length > 1500) {
             state.word = null;
             $("list").innerHTML = ""; $("lemmas").hidden = true; $("tabs").hidden = true;
-            setStatus("Выделите одно слово");
+            setStatus("Выделен слишком длинный фрагмент. Выделите слово, фразу или предложение.");
             return;
           }
-          if (p.core !== state.word) show(p.core, "selection");
-          else state.target = "selection";
+          if (p.core !== state.word) {
+            state.context = await selectionContext(ctx, sel, p.core, p.pre);
+            show(p.core, "selection");
+          } else state.target = "selection";
           return;
         }
         var info = await cursorWord(ctx, sel);
-        if (info.word && info.word !== state.word) show(info.word, "cursor");
-        else if (info.word) state.target = "cursor";
+        if (info.word && info.word !== state.word) {
+          state.context = sentenceAround(info.paraText, info.start, info.start + info.word.length);
+          show(info.word, "cursor");
+        } else if (info.word) state.target = "cursor";
       });
     } catch (e) { console.error(e); }
+  }
+
+  /* ---------- Вкладка «ИИ» ---------- */
+
+  function aiReset() {
+    ai.reqId++;
+    ai.status = "idle"; ai.variants = []; ai.error = ""; ai.model = "";
+  }
+
+  function aiCacheKey() {
+    var st = ai.settings;
+    return [st.provider, st.models[st.provider] || "", ai.style, st.count, state.word, state.context].join("\u0001");
+  }
+
+  async function aiRun(force) {
+    var word = state.word;
+    if (!word) return;
+    var k = aiCacheKey();
+    if (!force && ai.cache[k]) {
+      ai.status = "done"; ai.variants = ai.cache[k].variants; ai.model = ai.cache[k].model; render(); return;
+    }
+    var id = ++ai.reqId;
+    ai.status = "loading"; ai.error = ""; ai.variants = [];
+    render();
+    try {
+      var res = await AI.paraphrase(ai.settings, word, state.context, ai.style);
+      if (id !== ai.reqId) return;
+      ai.cache[aiCacheKey()] = res;
+      ai.status = "done"; ai.variants = res.variants; ai.model = res.model;
+    } catch (e) {
+      if (id !== ai.reqId) return;
+      ai.status = "error"; ai.error = e && e.message || String(e);
+    }
+    render();
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function renderAI() {
+    var list = $("list");
+    list.innerHTML = "";
+    var box = el("div", "ai-box");
+    var st = ai.settings, prov = AI.PROVIDERS[st.provider];
+
+    box.appendChild(el("div", "ai-what", state.phrase
+      ? "Варианты замены для выделенной фразы с учётом предложения:"
+      : "Синонимы к «" + state.word + "» по смыслу предложения и в той же форме:"));
+
+    var styles = el("div", "ai-styles");
+    AI.STYLES.forEach(function (sty) {
+      var b = el("button", "ai-style" + (ai.style === sty.id && ai.status !== "idle" ? " active" : ""), sty.name);
+      b.type = "button";
+      b.title = "Предложить варианты: " + sty.hint;
+      b.disabled = ai.status === "loading";
+      b.onclick = function () { ai.style = sty.id; aiRun(false); };
+      styles.appendChild(b);
+    });
+    box.appendChild(styles);
+
+    if (ai.status === "idle") {
+      box.appendChild(el("p", "note", "Нажмите стиль, чтобы получить варианты. Каждое нажатие — один запрос к сервису."));
+    } else if (ai.status === "loading") {
+      box.appendChild(el("p", "note ai-wait", "Спрашиваю " + prov.name.replace(/ — .*/, "") + "…"));
+    } else if (ai.status === "error") {
+      box.appendChild(el("p", "ai-error", ai.error));
+    } else {
+      var ul = el("ul", "variants");
+      ai.variants.forEach(function (v) {
+        var li = el("li");
+        var b = el("button", "variant", v);
+        b.type = "button";
+        b.title = "Заменить выделенное этим вариантом";
+        b.onclick = function () { replaceWith(v, b); };
+        li.appendChild(b);
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      var more = el("button", "ai-more", "Ещё варианты");
+      more.type = "button";
+      more.onclick = function () { aiRun(true); };
+      box.appendChild(more);
+    }
+
+    var foot = el("div", "ai-foot");
+    foot.appendChild(document.createTextNode("Сервис: " + prov.name.replace(/ — .*/, "") +
+      (ai.model || st.models[st.provider] ? " · " + (ai.model || st.models[st.provider]) : "") + " "));
+    var gear = el("button", "ai-gear", ai.open ? "Скрыть настройки" : "⚙ Настройки");
+    gear.type = "button";
+    gear.onclick = function () { ai.open = !ai.open; render(); };
+    foot.appendChild(gear);
+    box.appendChild(foot);
+
+    if (ai.open) box.appendChild(renderSettings());
+    list.appendChild(box);
+  }
+
+  function renderSettings() {
+    var st = ai.settings;
+    var wrap = el("div", "ai-settings");
+
+    var lab = el("label", null, "Сервис");
+    var sel = el("select");
+    Object.keys(AI.PROVIDERS).forEach(function (id) {
+      var o = el("option", null, AI.PROVIDERS[id].name);
+      o.value = id;
+      if (id === st.provider) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.onchange = function () { st.provider = sel.value; ai.models = null; AI.saveSettings(st); aiReset(); render(); };
+    lab.appendChild(sel);
+    wrap.appendChild(lab);
+
+    var prov = AI.PROVIDERS[st.provider];
+    var noteP = el("p", "note", prov.note || "");
+    if (prov.signup) {
+      noteP.appendChild(document.createTextNode(" "));
+      var a = el("a", null, "Получить ключ");
+      a.href = prov.signup; a.target = "_blank"; a.rel = "noopener";
+      noteP.appendChild(a);
+    }
+    wrap.appendChild(noteP);
+
+    if (prov.custom) {
+      var lb = el("label", null, "Адрес (до /chat/completions)");
+      var ib = el("input");
+      ib.type = "url"; ib.placeholder = "http://localhost:11434/v1"; ib.value = st.customBase || "";
+      ib.onchange = function () { st.customBase = ib.value.trim(); ai.models = null; AI.saveSettings(st); };
+      lb.appendChild(ib);
+      wrap.appendChild(lb);
+    }
+
+    if (prov.key) {
+      var lk = el("label", null, prov.key === true ? "Ключ API" : "Ключ API (если нужен)");
+      var ik = el("input");
+      ik.type = "password"; ik.autocomplete = "off"; ik.placeholder = "вставьте ключ";
+      ik.value = st.keys[st.provider] || "";
+      ik.onchange = function () { st.keys[st.provider] = ik.value.trim(); ai.models = null; AI.saveSettings(st); aiReset(); };
+      lk.appendChild(ik);
+      wrap.appendChild(lk);
+    }
+
+    var lm = el("label", null, "Модель");
+    var row = el("div", "ai-row");
+    var ms = el("select");
+    var current = st.models[st.provider] || "";
+    var models = ai.models && ai.models.provider === st.provider ? ai.models.list : (current ? [current] : []);
+    if (!models.length) { var o0 = el("option", null, "выберется автоматически"); o0.value = ""; ms.appendChild(o0); }
+    models.forEach(function (m) {
+      var o = el("option", null, m); o.value = m;
+      if (m === current) o.selected = true;
+      ms.appendChild(o);
+    });
+    ms.onchange = function () { st.models[st.provider] = ms.value; AI.saveSettings(st); aiReset(); render(); };
+    var load = el("button", "ai-more", "Загрузить список");
+    load.type = "button";
+    var msg = el("p", "note");
+    load.onclick = async function () {
+      load.disabled = true; msg.textContent = "Загружаю список моделей…";
+      try {
+        var list = await AI.listModels(st);
+        ai.models = { provider: st.provider, list: list };
+        if (list.length && list.indexOf(st.models[st.provider]) === -1) { st.models[st.provider] = list[0]; AI.saveSettings(st); }
+        render();
+      } catch (e) { msg.textContent = e.message; load.disabled = false; }
+    };
+    row.appendChild(ms); row.appendChild(load);
+    lm.appendChild(row);
+    wrap.appendChild(lm);
+    wrap.appendChild(msg);
+
+    var lc = el("label", null, "Сколько вариантов");
+    var cs = el("select");
+    [3, 5, 7].forEach(function (n) {
+      var o = el("option", null, String(n)); o.value = n;
+      if (n === st.count) o.selected = true;
+      cs.appendChild(o);
+    });
+    cs.onchange = function () { st.count = +cs.value; AI.saveSettings(st); };
+    lc.appendChild(cs);
+    wrap.appendChild(lc);
+
+    wrap.appendChild(el("p", "note",
+      "Выделенный фрагмент и предложение вокруг него отправляются выбранному сервису. " +
+      "Ключи хранятся только на этом компьютере."));
+    return wrap;
   }
 
   /* ---------- Замена ---------- */
@@ -439,7 +681,7 @@
         range.select();   // новое слово остаётся выделенным — можно сразу попробовать другой вариант
         await ctx.sync();
       });
-      var used = document.querySelector(".chips button.used");
+      var used = document.querySelector("#list button.used");
       if (used) used.classList.remove("used");
       btn.classList.add("used");
     } catch (e) {
@@ -455,7 +697,8 @@
     function run() {
       var v = $("search").value.trim();
       if (!v) return;
-      show(v.split(/\s+/)[0], "insert");
+      state.context = "";
+      show(v.replace(/\s+/g, " "), "insert");
     }
     $("search").addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(run, 350); });
     $("searchForm").addEventListener("submit", function (e) { e.preventDefault(); run(); });

@@ -5,12 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Синонимы</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css?v=1.1">
+  <link rel="stylesheet" href="taskpane.css?v=1.2">
 </head>
 <body>
   <header>
     <form id="searchForm" autocomplete="off">
-      <input id="search" type="search" placeholder="Найти синонимы к слову…" aria-label="Слово для поиска">
+      <input id="search" type="search" placeholder="Слово или фраза…" aria-label="Слово для поиска">
     </form>
     <nav id="tabs" class="tabs" role="tablist" aria-label="Словари" hidden></nav>
   </header>
@@ -23,12 +23,14 @@
 
   <footer>
     Выделите слово или поставьте в него курсор. Щелчок по синониму заменяет слово, варианты можно перебирать подряд.
+    <span class="muted">Выделите фразу или предложение — откроется вкладка «✨ ИИ» с вариантами перефразирования.</span>
     <span class="muted">На вкладке «Все» каждое слово показано один раз, буквы рядом — в каких словарях оно есть:</span>
     <span id="sources" class="muted"></span>
     <span class="muted">Окончания подстраиваются у прилагательных. <span id="version"></span></span>
   </footer>
 
-  <script src="synonyms.js?v=1.1"></script>
-  <script src="taskpane.js?v=1.1"></script>
+  <script src="synonyms.js?v=1.2"></script>
+  <script src="ai.js?v=1.2"></script>
+  <script src="taskpane.js?v=1.2"></script>
 </body>
 </html>
