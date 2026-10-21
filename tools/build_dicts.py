@@ -20,7 +20,6 @@ def clean_word(w):
     return w.lower()
 
 def save(id_, name, groups, heads=None):
-    # убираем повторы групп
     seen, g2, remap = {}, [], {}
     for i, g in enumerate(groups):
         key = (g[0], tuple(g[1:]))
@@ -40,7 +39,6 @@ def save(id_, name, groups, heads=None):
     with open(p, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, separators=(',', ':'))
     print(id_, len(g2), 'groups', len(data.get('h', {})), 'heads', os.path.getsize(p) // 1024, 'KB')
 
-# ---------- Абрамов: индекс из synonyms.js (та же логика, что раньше в панели)
 js = r'''
 const S=require(process.argv[1]); const d=require(process.argv[2]);
 const idx=S.buildIndex(d.wordlist); process.stdout.write(JSON.stringify(idx));
@@ -52,7 +50,6 @@ for k, syns in idx.items():
     heads[k] = [len(groups)]; groups.append([''] + syns)
 save('abramov', 'Абрамов', groups, heads)
 
-# ---------- LibreOffice (АОТ + Абрамов в редакции Королёва), LGPL
 LABELS = {'(синоним)': '', '(сходный термин)': 'сходные', '(антоним)': None}
 groups, heads = [], {}
 with open(os.path.join(DL, 'lo/ru_RU/th_ru_RU_M_aot_and_v2.dat'), encoding='utf-8-sig') as f:
@@ -80,7 +77,6 @@ while i < len(lines):
 print('LO labels other:', sorted(unknown.items(), key=lambda x: -x[1])[:10])
 save('libreoffice', 'LibreOffice', groups, heads)
 
-# ---------- RuWordNet 2021, CC BY-SA 4.0 (берём name из senses: нормальная форма фраз)
 groups = []
 for pos in 'NVA':
     names = {}
