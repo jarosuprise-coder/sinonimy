@@ -134,6 +134,8 @@
     try { s = JSON.parse(localStorage.getItem(KEY) || "null"); } catch (e) { s = null; }
     s = s || {};
     if (!PROVIDERS[s.provider]) s.provider = "ovh";
+    // в версии 1.2 по умолчанию был Pollinations; если сервис не выбирали вручную, переходим на OVHcloud
+    if (!s.chosen && s.provider === "pollinations") s.provider = "ovh";
     s.keys = s.keys || {};
     s.models = s.models || {};
     s.customBase = s.customBase || "";

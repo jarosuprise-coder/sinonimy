@@ -4,7 +4,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.2";
+  var VERSION = "1.2.1";
   var DICT_VER = "2";   // меняется, когда обновляются файлы dict/*.json
 
   // Порядок вкладок. short — пометка источника на вкладке «Все».
@@ -568,7 +568,7 @@
       if (id === st.provider) o.selected = true;
       sel.appendChild(o);
     });
-    sel.onchange = function () { st.provider = sel.value; ai.models = null; AI.saveSettings(st); aiReset(); render(); };
+    sel.onchange = function () { st.provider = sel.value; st.chosen = true; ai.models = null; AI.saveSettings(st); aiReset(); render(); };
     lab.appendChild(sel);
     wrap.appendChild(lab);
 
