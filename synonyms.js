@@ -133,14 +133,18 @@
     "может": "мочь", "могут": "мочь", "хочет": "хотеть", "хотят": "хотеть", "хочу": "хотеть"
   };
 
-  function hasSyn(idx, w) { return Object.prototype.hasOwnProperty.call(idx, w); }
+  // idx — объект-индекс или функция has(слово) → true/false
+  function hasSyn(idx, w) {
+    return typeof idx === "function" ? idx(w) : Object.prototype.hasOwnProperty.call(idx, w);
+  }
 
   // Возвращает список найденных начальных форм: [{lemma, rule}], лучшие первыми.
+  // Если idx не передан (null), возвращает все возможные начальные формы (для Викисловаря).
   function findLemmas(idx, word) {
     var w = norm(word);
     var found = [], seen = {};
     function take(lemma, rule) {
-      if (!seen[lemma] && hasSyn(idx, lemma)) { seen[lemma] = 1; found.push({ lemma: lemma, rule: rule || null }); }
+      if (!seen[lemma] && (idx === null || hasSyn(idx, lemma))) { seen[lemma] = 1; found.push({ lemma: lemma, rule: rule || null }); }
     }
     take(w, null);
     if (IRREG[w]) take(IRREG[w], null);
@@ -216,7 +220,200 @@
     return repl;
   }
 
-  /* ---------- 5. Всё вместе ---------- */
+  /* ---------- 5. Несколько словарей ---------- */
+
+  // Ключ для сравнения слов из разных словарей: регистр, ё/е, пробелы и дефисы не важны.
+  function key(s) {
+    return norm(s).replace(/[\s \-‐–—]+/g, " ").trim();
+  }
+
+  // Словарь из файла dict/*.json: {id, name, g:[[метка, слово...]], h?:{слово:[группы]}}
+  function makeDict(data) {
+    var g = data.g, index = data.h || null;
+    if (!index) {
+      index = {};
+      g.forEach(function (grp, i) {
+        for (var j = 1; j < grp.length; j++) {
+          var k = norm(grp[j]);
+          var a = index[k] || (index[k] = []);
+          if (a[a.length - 1] !== i) a.push(i);
+        }
+      });
+    }
+    return {
+      id: data.id,
+      name: data.name,
+      has: function (w) { return Object.prototype.hasOwnProperty.call(index, w); },
+      groups: function (lemma) {
+        return (index[lemma] || []).map(function (i) { return { label: g[i][0], words: g[i].slice(1) }; });
+      }
+    };
+  }
+
+  // По какому правилу из слова получилась начальная форма (для согласования окончаний)
+  function ruleFor(word, lemma) {
+    var all = findLemmas(null, word), l = key(lemma);
+    for (var i = 0; i < all.length; i++) if (key(all[i].lemma) === l) return all[i];
+    return { lemma: key(lemma), rule: null };
+  }
+
+  // Группы синонимов → готовые варианты для вставки (с окончанием и регистром исходного слова)
+  function prepare(word, lemmaInfo, groups) {
+    var w = key(word), lem = key(lemmaInfo.lemma), seen = {};
+    var out = [];
+    groups.forEach(function (grp) {
+      var items = [];
+      grp.words.forEach(function (s) {
+        var k = key(s);
+        if (!k || k === w || k === lem || seen[k]) return;
+        // «красивый на вид», «внешне красивый» — это то же слово с уточнением, не синоним
+        var toks = k.split(" ");
+        if (toks.length > 1 && (toks.indexOf(lem) !== -1 || toks.indexOf(w) !== -1)) return;
+        var t = adapt(word, lemmaInfo, s);
+        var kt = key(t);
+        if (kt === w || seen[kt]) return;
+        seen[k] = seen[kt] = 1;
+        items.push({ base: s, key: k, text: matchCase(word, t) });
+      });
+      if (items.length) out.push({ label: grp.label || "", items: items });
+    });
+    return out;
+  }
+
+  // Вкладка «Все словари»: каждое слово ровно один раз, с пометкой, в каких словарях оно есть.
+  // Выше стоят слова, которые есть в нескольких словарях, затем — по месту в списке.
+  function merge(results) {
+    var map = {}, order = [];
+    results.forEach(function (res) {
+      var flat = [];
+      res.groups.forEach(function (g) { flat = flat.concat(g.items); });
+      flat.forEach(function (it, pos) {
+        var e = map[it.key];
+        var rank = flat.length > 1 ? pos / (flat.length - 1) : 0;
+        if (!e) {
+          e = map[it.key] = { base: it.base, key: it.key, text: it.text, sources: [], rank: 0 };
+          order.push(e);
+        }
+        if (e.sources.indexOf(res.id) === -1) { e.sources.push(res.id); e.rank += rank; }
+      });
+    });
+    // Разные словарные формы могли дать одинаковый текст после согласования — оставляем один
+    var byText = {}, out = [];
+    order.forEach(function (e) {
+      var kt = key(e.text);
+      var prev = byText[kt];
+      if (prev) {
+        e.sources.forEach(function (s) { if (prev.sources.indexOf(s) === -1) prev.sources.push(s); });
+        return;
+      }
+      byText[kt] = e;
+      out.push(e);
+    });
+    out.forEach(function (e, i) { e.first = i; e.avg = e.rank / e.sources.length; });
+    out.sort(function (a, b) {
+      return (b.sources.length - a.sources.length) || (a.avg - b.avg) || (a.first - b.first);
+    });
+    return out;
+  }
+
+  /* ---------- 6. Викисловарь ---------- */
+
+  function stripTemplates(s) {
+    var prev;
+    do { prev = s; s = s.replace(/\{\{[^{}]*\}\}/g, ""); } while (s !== prev);
+    return s;
+  }
+  function unlink(s) {
+    return s.replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1");
+  }
+
+  // Разбирает текст статьи Викисловаря: русская часть, значения и синонимы к каждому значению.
+  function parseWiki(text) {
+    var parts = String(text).split(/^=\s*\{\{-([a-z-]+)-\}\}\s*=\s*$/m);
+    var ru = null;
+    for (var i = 1; i < parts.length; i += 2) if (parts[i] === "ru") { ru = parts[i + 1]; break; }
+    if (ru === null) return [];
+
+    // Омонимы: блоки с заголовком второго уровня («== {{заголовок|(глагол)}} ==»)
+    var blocks = ru.split(/^==(?!=)\s*(.*?)\s*==\s*$/m);
+    var list = [{ title: "", body: blocks[0] }];
+    for (var b = 1; b < blocks.length; b += 2) list.push({ title: blocks[b], body: blocks[b + 1] || "" });
+
+    function section(body, name) {
+      var re = new RegExp("^=+\\s*" + name + "\\s*=+\\s*$", "m");
+      var m = re.exec(body);
+      if (!m) return [];
+      var rest = body.slice(m.index + m[0].length);
+      var end = rest.search(/^=/m);
+      if (end !== -1) rest = rest.slice(0, end);
+      return rest.split("\n").filter(function (l) { return /^#(?![:*])/.test(l); })
+                 .map(function (l) { return l.replace(/^#\s*/, ""); });
+    }
+
+    // Синонимы из шаблона {{семантика|синонимы=...}} внутри строки значения
+    function semSyn(line) {
+      var at = line.indexOf("{{семантика");
+      if (at === -1) return [];
+      var depth = 0, i = at, end = -1;
+      for (; i < line.length - 1; i++) {
+        if (line[i] === "{" && line[i + 1] === "{") { depth++; i++; }
+        else if (line[i] === "}" && line[i + 1] === "}") { depth--; i++; if (!depth) { end = i - 1; break; } }
+      }
+      if (end === -1) return [];
+      var inner = stripTemplates(unlink(line.slice(at + 2, end)));
+      var res = [];
+      inner.split("|").forEach(function (p) {
+        var m = /^\s*синонимы\s*=(.*)$/.exec(p);
+        if (m) m[1].split(/[,;]/).forEach(function (x) { x = cleanWord(x); if (x) res.push(x); });
+      });
+      return res;
+    }
+    function cleanWord(x) {
+      x = String(x).replace(/[?!]+$/, "").replace(/\s+/g, " ").trim();
+      if (!x || x.length < 2 || /[{}=<>|]/.test(x) || /^[-—]$/.test(x)) return null;
+      return x;
+    }
+    function linkWords(line) {
+      var words = [], m, re = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+      var clean = stripTemplates(line);
+      while ((m = re.exec(clean))) {
+        var wd = cleanWord(m[1]);
+        if (wd && words.indexOf(wd) === -1 && wd.indexOf(":") === -1) words.push(wd);
+      }
+      return words;
+    }
+    function shortLabel(line) {
+      var label = line ? unlink(stripTemplates(line)).replace(/'{2,}/g, "").replace(/\s+/g, " ")
+        .replace(/^[\s,;:.]+/, "").trim() : "";
+      var lw = label.split(" ").filter(Boolean);
+      return lw.slice(0, 6).join(" ").replace(/[,;:.]+$/, "") + (lw.length > 6 ? "…" : "");
+    }
+
+    var groups = [], blocksWith = 0, perBlock = [];
+    list.forEach(function (blk) {
+      var syn = section(blk.body, "Синонимы");
+      var mean = section(blk.body, "Значение");
+      var title = unlink(stripTemplates(blk.title.replace(/\{\{(?:заголовок|з)\|([^}|]*)[^}]*\}\}/g, "$1"))).trim();
+      var out = [];
+      var n = Math.max(syn.length, mean.length);
+      for (var i = 0; i < n; i++) {
+        var words = linkWords(syn[i] || "");
+        semSyn(mean[i] || "").forEach(function (w) { if (words.indexOf(w) === -1) words.push(w); });
+        if (words.length) out.push({ label: shortLabel(mean[i]), words: words });
+      }
+      if (out.length) blocksWith++;
+      perBlock.push({ title: title, groups: out });
+    });
+    perBlock.forEach(function (b) {
+      b.groups.forEach(function (g) {
+        if (blocksWith > 1 && b.title) g.label = b.title.replace(/^\((.*)\)$/, "$1") + (g.label ? ": " + g.label : "");
+        groups.push(g);
+      });
+    });
+    return groups;
+  }
+
+  /* ---------- 7. Совместимость: один словарь-индекс ---------- */
 
   // Возвращает { lemmas:[...], current, items:[{text, base}] }
   function lookup(idx, word, preferLemma) {
@@ -239,7 +436,9 @@
   }
 
   var api = { buildIndex: buildIndex, findLemmas: findLemmas, lookup: lookup,
-              adapt: adapt, inflectAdj: inflectAdj, matchCase: matchCase, norm: norm };
+              adapt: adapt, inflectAdj: inflectAdj, matchCase: matchCase, norm: norm,
+              key: key, makeDict: makeDict, ruleFor: ruleFor, prepare: prepare,
+              merge: merge, parseWiki: parseWiki };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Syn = api;
 })(this);

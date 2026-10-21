@@ -1,72 +1,47 @@
-/* Панель «Синонимы» для Word: следит за выделением, показывает синонимы, заменяет слово. */
+/* Панель «Синонимы» для Word: следит за выделением, показывает синонимы из нескольких словарей,
+   заменяет слово. Вкладки: «Все» (без повторов) и по одному словарю. */
 (function () {
   "use strict";
 
-  // Сначала ищем словарь рядом с надстройкой (если вы положите dictionary.json в репозиторий),
-  // иначе берём его с jsDelivr прямо из репозитория словаря.
-  var DICT_URLS = [
-    "dictionary.json",
-    "https://cdn.jsdelivr.net/gh/egorkaru/synonym_dictionary@master/dictionary.json"
-  ];
-  var CACHE_KEY = "abramov-index-v1";
+  var VERSION = "1.1";
+  var DICT_VER = "2";   // меняется, когда обновляются файлы dict/*.json
 
-  var idx = null;
-  var state = { word: null, target: null };   // target: "selection" | "cursor" | "insert"
-  var ignoreSelUntil = 0;                      // не реагировать на смену выделения после своей замены
+  // Порядок вкладок. short — пометка источника на вкладке «Все».
+  var SOURCES = [
+    { id: "abramov", name: "Абрамов", short: "А", url: "dict/abramov.json",
+      about: "Словарь русских синонимов Н. Абрамова (1911)" },
+    { id: "wiki", name: "Викисловарь", short: "В", live: true,
+      about: "Русский Викисловарь, ru.wiktionary.org (CC BY-SA)" },
+    { id: "ruwordnet", name: "RuWordNet", short: "Р", url: "dict/ruwordnet.json",
+      about: "Тезаурус RuWordNet 2021, ruwordnet.ru (CC BY-SA 4.0)" },
+    { id: "libreoffice", name: "LibreOffice", short: "Л", url: "dict/libreoffice.json",
+      about: "Тезаурус LibreOffice: АОТ и Абрамов в ред. М. Королёва (LGPL)" }
+  ];
+  var BY_ID = {};
+  SOURCES.forEach(function (s) { BY_ID[s.id] = s; });
+
+  var dicts = {};          // id → словарь | "loading" | "error"
+  var wikiCache = {};      // ключ запроса → {title, groups} | null
+  var state = { word: null, target: null, prefer: null, cur: null, lemmas: [], results: {}, wiki: "idle", reqId: 0 };
+  var tab = readTab();
+  var ignoreSelUntil = 0;
   var inWord = false;
 
   var $ = function (id) { return document.getElementById(id); };
   var L = "A-Za-zА-Яа-яЁё";
 
-  /* ---------- Интерфейс ---------- */
+  /* ---------- Мелочи ---------- */
 
   function setStatus(html) { $("status").innerHTML = html; }
   function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
-
-  function clearList() { $("list").innerHTML = ""; $("lemmas").hidden = true; $("lemmas").innerHTML = ""; }
-
-  function show(word, target, preferLemma) {
-    state.word = word;
-    state.target = target;
-    var r = Syn.lookup(idx, word, preferLemma);
-    clearList();
-
-    if (!r.current || !r.items.length) {
-      setStatus("Нет синонимов для «<b>" + esc(word) + "</b>»");
-      return;
-    }
-    var head = "«<b>" + esc(word) + "</b>»";
-    if (r.current !== Syn.norm(word)) head += " → " + esc(r.current);
-    setStatus(head + " · " + r.items.length);
-
-    if (r.lemmas.length > 1) {
-      var box = $("lemmas");
-      box.appendChild(document.createTextNode("Другие значения: "));
-      r.lemmas.forEach(function (lem) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.textContent = lem;
-        if (lem === r.current) b.className = "active";
-        b.onclick = function () { show(word, target, lem); };
-        box.appendChild(b);
-      });
-      box.hidden = false;
-    }
-
-    var list = $("list");
-    r.items.forEach(function (it) {
-      var li = document.createElement("li");
-      var b = document.createElement("button");
-      b.type = "button";
-      b.textContent = it.text;
-      if (it.text.toLowerCase() !== it.base) b.title = "Словарная форма: " + it.base;
-      b.onclick = function () { replaceWith(it.text, b); };
-      li.appendChild(b);
-      list.appendChild(li);
-    });
+  function readTab() { try { return localStorage.getItem("sin-tab") || "all"; } catch (e) { return "all"; } }
+  function saveTab(t) { try { localStorage.setItem("sin-tab", t); } catch (e) { /* не страшно */ } }
+  function anyLoaded() { return SOURCES.some(function (s) { return dicts[s.id] && typeof dicts[s.id] === "object"; }); }
+  function hasLocal(w) {
+    return SOURCES.some(function (s) { var d = dicts[s.id]; return d && typeof d === "object" && d.has(w); });
   }
 
-  /* ---------- Кэш индекса (IndexedDB) ---------- */
+  /* ---------- Кэш словарей (IndexedDB) ---------- */
 
   function openDb() {
     return new Promise(function (res, rej) {
@@ -86,27 +61,278 @@
     }).catch(function () { return null; });
   }
   function cacheSet(k, v) {
-    return openDb().then(function (db) {
-      db.transaction("kv", "readwrite").objectStore("kv").put(v, k);
-    }).catch(function () {});
+    return openDb().then(function (db) { db.transaction("kv", "readwrite").objectStore("kv").put(v, k); }).catch(function () {});
+  }
+  function cacheDel(k) {
+    return openDb().then(function (db) { db.transaction("kv", "readwrite").objectStore("kv").delete(k); }).catch(function () {});
   }
 
-  async function loadIndex() {
-    var cached = await cacheGet(CACHE_KEY);
-    if (cached) return cached;
-    for (var i = 0; i < DICT_URLS.length; i++) {
-      try {
-        setStatus("Загружаю словарь (около 6 МБ, только в первый раз)…");
-        var r = await fetch(DICT_URLS[i]);
-        if (!r.ok) continue;
-        var data = await r.json();
-        setStatus("Готовлю словарь…");
-        var built = Syn.buildIndex(data.wordlist || data);
-        cacheSet(CACHE_KEY, built);
-        return built;
-      } catch (e) { /* пробуем следующий адрес */ }
+  async function loadDict(src) {
+    dicts[src.id] = "loading";
+    var k = "dict-" + src.id + "-v" + DICT_VER;
+    try {
+      var data = await cacheGet(k);
+      if (!data) {
+        var r = await fetch(src.url);
+        if (!r.ok) throw new Error(r.status);
+        data = await r.json();
+        cacheSet(k, data);
+      }
+      dicts[src.id] = Syn.makeDict(data);
+    } catch (e) {
+      console.error(src.id, e);
+      dicts[src.id] = "error";
     }
-    throw new Error("Словарь не загрузился");
+    if (state.word) show(state.word, state.target, state.prefer, true);
+    else { idleStatus(); if (inWord) onSelectionChanged(); }
+  }
+
+  function idleStatus() {
+    if (!anyLoaded()) {
+      var failed = SOURCES.every(function (s) { return s.live || dicts[s.id] === "error"; });
+      setStatus(failed ? "Словари не загрузились. Проверьте интернет и откройте панель заново."
+                       : "Загружаю словари (только в первый раз, около 3 МБ)…");
+    } else {
+      setStatus(inWord ? "Выделите слово в документе" : "Введите слово в поиске");
+    }
+  }
+
+  /* ---------- Викисловарь ---------- */
+
+  function yoVariants(w) {
+    var out = [];
+    for (var i = 0; i < w.length && out.length < 4; i++) {
+      if (w[i] === "е") out.push(w.slice(0, i) + "ё" + w.slice(i + 1));
+    }
+    return out;
+  }
+
+  async function wikiLookup(titles) {
+    var cacheKey = titles.join("|");
+    if (Object.prototype.hasOwnProperty.call(wikiCache, cacheKey)) return wikiCache[cacheKey];
+    var url = "https://ru.wiktionary.org/w/api.php?action=query&prop=revisions&rvprop=content&rvslots=main" +
+              "&format=json&formatversion=2&redirects=1&origin=*&titles=" + encodeURIComponent(titles.join("|"));
+    var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, 10000) : null;
+    var r = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
+    if (timer) clearTimeout(timer);
+    if (!r.ok) throw new Error("wiki " + r.status);
+    var j = await r.json();
+    var q = j.query || {}, pages = {};
+    (q.pages || []).forEach(function (p) {
+      if (!p.missing && p.revisions) pages[p.title] = p.revisions[0].slots.main.content;
+    });
+    function resolve(t) {
+      (q.normalized || []).forEach(function (n) { if (n.from === t) t = n.to; });
+      (q.redirects || []).forEach(function (n) { if (n.from === t) t = n.to; });
+      return t;
+    }
+    var result = null;
+    for (var i = 0; i < titles.length && !result; i++) {
+      var t = resolve(titles[i]);
+      if (pages[t]) {
+        var groups = Syn.parseWiki(pages[t]);
+        if (groups.length) result = { title: t, groups: groups };
+      }
+    }
+    wikiCache[cacheKey] = result;
+    return result;
+  }
+
+  function wikiTitles(word, cur) {
+    var raw = word.toLowerCase(), list = [];
+    function add(t) { if (t && list.indexOf(t) === -1 && list.length < 40) list.push(t); }
+    if (cur) { add(cur.lemma); yoVariants(cur.lemma).forEach(add); }
+    add(raw);
+    if (!cur) {
+      Syn.findLemmas(null, word).slice(0, 10).forEach(function (l) { add(l.lemma); yoVariants(l.lemma).forEach(add); });
+    }
+    return list;
+  }
+
+  async function fetchWiki(word, cur, reqId) {
+    state.wiki = "loading";
+    try {
+      var res = await wikiLookup(wikiTitles(word, cur));
+      if (reqId !== state.reqId) return;
+      if (res) {
+        var info = cur && Syn.key(res.title) === Syn.key(cur.lemma) ? cur : Syn.ruleFor(word, res.title);
+        state.results.wiki = { id: "wiki", lemma: res.title, groups: Syn.prepare(word, info, res.groups) };
+      } else {
+        state.results.wiki = { id: "wiki", groups: [] };
+      }
+      state.wiki = "done";
+    } catch (e) {
+      if (reqId !== state.reqId) return;
+      console.error(e);
+      state.wiki = "error";
+      state.results.wiki = { id: "wiki", groups: [] };
+    }
+    render();
+  }
+
+  /* ---------- Поиск синонимов ---------- */
+
+  function show(word, target, prefer, keepWiki) {
+    var sameWord = state.word === word && state.prefer === prefer;
+    state.word = word;
+    state.target = target;
+    state.prefer = prefer || null;
+
+    var lemmas = Syn.findLemmas(hasLocal, word);
+    var cur = lemmas[0] || null;
+    if (prefer) lemmas.forEach(function (l) { if (l.lemma === prefer) cur = l; });
+    state.lemmas = lemmas;
+    state.cur = cur;
+
+    var oldWiki = state.results.wiki;
+    state.results = {};
+    SOURCES.forEach(function (s) {
+      var d = dicts[s.id];
+      if (s.live || !d || typeof d !== "object") return;
+      state.results[s.id] = { id: s.id, groups: cur ? Syn.prepare(word, cur, d.groups(cur.lemma)) : [] };
+    });
+
+    if ((keepWiki || sameWord) && state.wiki === "loading") {
+      render();                       // ответ Викисловаря ещё в пути — дождёмся его
+    } else if ((keepWiki || sameWord) && oldWiki && state.wiki !== "error") {
+      state.results.wiki = oldWiki;
+      render();
+    } else {
+      state.reqId++;
+      state.results.wiki = null;
+      render();
+      fetchWiki(word, cur, state.reqId);
+    }
+  }
+
+  function countOf(res) {
+    if (!res) return 0;
+    return res.groups.reduce(function (a, g) { return a + g.items.length; }, 0);
+  }
+
+  function ordered() {
+    var list = [];
+    SOURCES.forEach(function (s) { if (state.results[s.id]) list.push(state.results[s.id]); });
+    return list;
+  }
+
+  /* ---------- Отрисовка ---------- */
+
+  function render() {
+    var word = state.word;
+    var all = Syn.merge(ordered());
+    renderTabs(all.length);
+
+    var lemma = state.cur ? state.cur.lemma : (state.results.wiki && state.results.wiki.lemma) || null;
+    if (!all.length) {
+      var waiting = state.wiki === "loading" || SOURCES.some(function (s) { return dicts[s.id] === "loading"; });
+      setStatus(waiting ? "Ищу синонимы к «<b>" + esc(word) + "</b>»…"
+                        : "Нет синонимов для «<b>" + esc(word) + "</b>»");
+    } else {
+      var head = "«<b>" + esc(word) + "</b>»";
+      if (lemma && Syn.key(lemma) !== Syn.key(word)) head += " → " + esc(lemma);
+      setStatus(head);
+    }
+
+    renderLemmas();
+
+    var list = $("list");
+    list.innerHTML = "";
+    if (tab === "all") {
+      list.appendChild(chips(all, true));
+    } else {
+      var res = state.results[tab];
+      if (!res) {
+        list.appendChild(note(tab === "wiki" && state.wiki === "loading" ? "Загружаю статью из Викисловаря…"
+                         : dicts[tab] === "error" ? "Этот словарь не загрузился. Проверьте интернет."
+                         : dicts[tab] === "loading" ? "Словарь ещё загружается…" : ""));
+      } else if (!res.groups.length) {
+        list.appendChild(note(tab === "wiki" && state.wiki === "error" ? "Викисловарь сейчас недоступен."
+                         : all.length ? "В этом словаре нет синонимов к этому слову. Посмотрите вкладку «Все»." : ""));
+      } else {
+        res.groups.forEach(function (g) {
+          if (g.label || res.groups.length > 1) {
+            var cap = document.createElement("div");
+            cap.className = g.label ? "glabel" : "gsep";
+            cap.textContent = g.label;
+            list.appendChild(cap);
+          }
+          list.appendChild(chips(g.items, false));
+        });
+      }
+    }
+  }
+
+  function note(text) {
+    var p = document.createElement("p");
+    p.className = "note";
+    p.textContent = text;
+    return p;
+  }
+
+  function chips(items, withSources) {
+    var ul = document.createElement("ul");
+    ul.className = "chips";
+    items.forEach(function (it) {
+      var li = document.createElement("li");
+      var b = document.createElement("button");
+      b.type = "button";
+      b.appendChild(document.createTextNode(it.text));
+      var tip = [];
+      if (Syn.key(it.text) !== it.key) tip.push("Словарная форма: " + it.base);
+      if (withSources && it.sources) {
+        var sup = document.createElement("span");
+        sup.className = "src";
+        sup.textContent = it.sources.map(function (id) { return BY_ID[id].short; }).join("");
+        b.appendChild(sup);
+        tip.push("Есть в словарях: " + it.sources.map(function (id) { return BY_ID[id].name; }).join(", "));
+      }
+      if (tip.length) b.title = tip.join("\n");
+      b.onclick = function () { replaceWith(it.text, b); };
+      li.appendChild(b);
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
+  function renderTabs(allCount) {
+    var nav = $("tabs");
+    nav.innerHTML = "";
+    nav.hidden = false;
+    var defs = [{ id: "all", name: "Все", count: allCount }].concat(SOURCES.map(function (s) {
+      var res = state.results[s.id], c = countOf(res);
+      var busy = s.live ? state.wiki === "loading" : dicts[s.id] === "loading";
+      var err = s.live ? state.wiki === "error" : dicts[s.id] === "error";
+      return { id: s.id, name: s.name, count: busy ? "…" : err ? "!" : c, title: s.about };
+    }));
+    defs.forEach(function (d) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", d.id === tab ? "true" : "false");
+      b.className = "tab" + (d.id === tab ? " active" : "") + (d.count === 0 ? " empty" : "");
+      if (d.title) b.title = d.title;
+      b.innerHTML = esc(d.name) + ' <span class="cnt">' + esc(d.count) + "</span>";
+      b.onclick = function () { tab = d.id; saveTab(tab); render(); };
+      nav.appendChild(b);
+    });
+  }
+
+  function renderLemmas() {
+    var box = $("lemmas");
+    box.innerHTML = "";
+    if (state.lemmas.length < 2) { box.hidden = true; return; }
+    box.appendChild(document.createTextNode("Другие значения: "));
+    state.lemmas.forEach(function (l) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.textContent = l.lemma;
+      if (state.cur && l.lemma === state.cur.lemma) b.className = "active";
+      b.onclick = function () { show(state.word, state.target, l.lemma); };
+      box.appendChild(b);
+    });
+    box.hidden = false;
   }
 
   /* ---------- Работа с текстом ---------- */
@@ -152,7 +378,7 @@
   /* ---------- Реакция на выделение ---------- */
 
   async function onSelectionChanged() {
-    if (!idx || Date.now() < ignoreSelUntil) return;
+    if (!anyLoaded() || Date.now() < ignoreSelUntil) return;
     try {
       await Word.run(async function (ctx) {
         var sel = ctx.document.getSelection();
@@ -161,12 +387,19 @@
         if (!sel.isEmpty) {
           var p = splitEdges(sel.text);
           if (!p.core) return;
-          if (/\s/.test(p.core)) { clearList(); setStatus("Выделите одно слово"); return; }
-          show(p.core, "selection");
+          if (/\s/.test(p.core)) {
+            state.word = null;
+            $("list").innerHTML = ""; $("lemmas").hidden = true; $("tabs").hidden = true;
+            setStatus("Выделите одно слово");
+            return;
+          }
+          if (p.core !== state.word) show(p.core, "selection");
+          else state.target = "selection";
           return;
         }
         var info = await cursorWord(ctx, sel);
-        if (info.word) show(info.word, "cursor");
+        if (info.word && info.word !== state.word) show(info.word, "cursor");
+        else if (info.word) state.target = "cursor";
       });
     } catch (e) { console.error(e); }
   }
@@ -174,7 +407,10 @@
   /* ---------- Замена ---------- */
 
   async function replaceWith(text, btn) {
-    if (!inWord) { navigator.clipboard && navigator.clipboard.writeText(text); return; }
+    if (!inWord) {
+      try { navigator.clipboard.writeText(text); setStatus("Скопировано: «<b>" + esc(text) + "</b>»"); } catch (e) { /* нет буфера */ }
+      return;
+    }
     try {
       await Word.run(async function (ctx) {
         var sel = ctx.document.getSelection();
@@ -202,7 +438,7 @@
         range.select();   // новое слово остаётся выделенным — можно сразу попробовать другой вариант
         await ctx.sync();
       });
-      var used = document.querySelector(".list button.used");
+      var used = document.querySelector(".chips button.used");
       if (used) used.classList.remove("used");
       btn.classList.add("used");
     } catch (e) {
@@ -217,10 +453,10 @@
     var timer = null;
     function run() {
       var v = $("search").value.trim();
-      if (!v || !idx) return;
+      if (!v) return;
       show(v.split(/\s+/)[0], "insert");
     }
-    $("search").addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(run, 300); });
+    $("search").addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(run, 350); });
     $("searchForm").addEventListener("submit", function (e) { e.preventDefault(); run(); });
   }
 
@@ -231,16 +467,16 @@
     return function () { clearTimeout(t); t = setTimeout(fn, ms); };
   }
 
-  async function start() {
+  function start() {
+    $("version").textContent = "v" + VERSION;
+    $("sources").innerHTML = SOURCES.map(function (s) {
+      return '<span title="' + esc(s.about) + '"><b>' + esc(s.short) + "</b> " + esc(s.name) + "</span>";
+    }).join(" · ");
     setupSearch();
-    try {
-      idx = await loadIndex();
-    } catch (e) {
-      setStatus("Словарь не загрузился. Проверьте интернет и откройте панель заново.");
-      return;
-    }
-    setStatus(inWord ? "Выделите слово в документе" : "Введите слово в поиске");
-    if (inWord) onSelectionChanged();
+    cacheDel("abramov-index-v1");   // кэш версии 1.0 больше не нужен
+    idleStatus();
+    SOURCES.forEach(function (s) { if (!s.live) loadDict(s); });
+    if (inWord) setTimeout(onSelectionChanged, 300);
   }
 
   if (typeof Office !== "undefined") {

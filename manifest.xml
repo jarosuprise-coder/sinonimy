@@ -6,16 +6,16 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.1.0.0</Version>
   <ProviderName>Личная надстройка</ProviderName>
   <DefaultLocale>ru-RU</DefaultLocale>
   <DisplayName DefaultValue="Синонимы"/>
-  <Description DefaultValue="Подбор синонимов к выделенному слову и замена в один клик. Словарь Абрамова."/>
+  <Description DefaultValue="Синонимы к выделенному слову из нескольких словарей (Абрамов, Викисловарь, RuWordNet, LibreOffice) и замена в один клик."/>
   <IconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/taskpane.html"/>
   <AppDomains>
-    <AppDomain>https://cdn.jsdelivr.net</AppDomain>
+    <AppDomain>https://ru.wiktionary.org</AppDomain>
   </AppDomains>
   <Hosts>
     <Host Name="Document"/>

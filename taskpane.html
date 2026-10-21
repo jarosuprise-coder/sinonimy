@@ -5,27 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Синонимы</title>
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
-  <link rel="stylesheet" href="taskpane.css">
+  <link rel="stylesheet" href="taskpane.css?v=1.1">
 </head>
 <body>
   <header>
     <form id="searchForm" autocomplete="off">
       <input id="search" type="search" placeholder="Найти синонимы к слову…" aria-label="Слово для поиска">
     </form>
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Словари" hidden></nav>
   </header>
 
   <main>
-    <div id="status" class="status">Загружаю словарь…</div>
+    <div id="status" class="status">Загружаю словари…</div>
     <div id="lemmas" class="lemmas" hidden></div>
-    <ul id="list" class="list" aria-live="polite"></ul>
+    <div id="list" aria-live="polite"></div>
   </main>
 
   <footer>
-    Выделите слово или поставьте в него курсор. Клик по синониму заменяет слово, можно пробовать варианты подряд.
-    <span class="muted">Словарь синонимов Н. Абрамова. Окончания подстраиваются у прилагательных.</span>
+    Выделите слово или поставьте в него курсор. Щелчок по синониму заменяет слово, варианты можно перебирать подряд.
+    <span class="muted">На вкладке «Все» каждое слово показано один раз, буквы рядом — в каких словарях оно есть:</span>
+    <span id="sources" class="muted"></span>
+    <span class="muted">Окончания подстраиваются у прилагательных. <span id="version"></span></span>
   </footer>
 
-  <script src="synonyms.js"></script>
-  <script src="taskpane.js"></script>
+  <script src="synonyms.js?v=1.1"></script>
+  <script src="taskpane.js?v=1.1"></script>
 </body>
 </html>
