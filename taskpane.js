@@ -201,6 +201,7 @@
     } else {
       state.reqId++;
       state.results.wiki = null;
+      state.wiki = "loading";
       render();
       fetchWiki(word, cur, state.reqId);
     }
