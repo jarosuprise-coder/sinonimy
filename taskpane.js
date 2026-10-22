@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.4";
+  var VERSION = "1.4.1";
   var DICT_VER = "2";
 
   var SOURCES = [
@@ -542,6 +542,7 @@
     }
     var id = isRetry ? ai.reqId : ++ai.reqId;
     ai.status = "loading"; ai.error = ""; ai.variants = [];
+    if (!isRetry) ai.startedAt = Date.now();
     render();
     try {
       var res = await AI.paraphrase(ai.settings, word, state.context, ai.style);
@@ -604,7 +605,15 @@
     if (ai.status === "idle") {
       box.appendChild(el("p", "note", "Нажмите стиль, чтобы получить варианты. Каждое нажатие — один запрос к сервису."));
     } else if (ai.status === "loading") {
-      box.appendChild(el("p", "note ai-wait", "Спрашиваю " + prov.name.replace(/ — .*/, "") + "…"));
+      var askP = el("p", "note ai-wait", "");
+      var askName = "Спрашиваю " + prov.name.replace(/ — .*/, "") + "…";
+      var askT = function () {
+        var sec = Math.floor((Date.now() - (ai.startedAt || Date.now())) / 1000);
+        askP.textContent = askName + (sec >= 3 ? " " + sec + " с" + (sec >= 15 ? " (сервис перегружен, при задержке попробую другую модель)" : "") : "");
+      };
+      askT();
+      var askI = setInterval(function () { if (!askP.isConnected || ai.status !== "loading") { clearInterval(askI); return; } askT(); }, 1000);
+      box.appendChild(askP);
     } else if (ai.status === "waiting") {
       box.appendChild(el("p", "note ai-wait", waitText()));
     } else if (ai.status === "error") {

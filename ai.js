@@ -8,9 +8,10 @@
       base: "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
       key: "optional",
       signup: "https://endpoints.ai.cloud.ovh.net/",
-      prefer: [/llama-3_3-70b/i, /mistral-small/i, /qwen3\.\d+-27b/i, /gpt-oss-120b/i, /qwen/i],
+      prefer: [/mistral-small/i, /llama-3_3-70b/i, /qwen3\.\d+-27b/i, /gpt-oss-120b/i, /qwen/i],
+      fallback: true,
       skip: /guard|vl|diffusion|whisper|embed|bge|xtts|nvr|tts|sdxl|rerank|9b|20b|nemo/i,
-      note: "Работает сразу, без регистрации: Llama 3.3 70B и другие открытые модели, ответ за 2–4 секунды. " +
+      note: "Работает сразу, без регистрации: Mistral Small 24B и другие открытые модели, ответ за 1–3 секунды. " +
             "Без ключа — около 2 запросов в минуту (при превышении панель сама подождёт и повторит)."
     },
     pollinations: {
@@ -131,6 +132,7 @@
     if (!s.chosen && s.provider === "pollinations") s.provider = "ovh";
     s.keys = s.keys || {};
     s.models = s.models || {};
+    if (!s.mig14) { if (/llama-3_3-70b/i.test(s.models.ovh || "")) delete s.models.ovh; s.mig14 = 1; }
     s.customBase = s.customBase || "";
     s.count = s.count || 5;
     return s;
@@ -218,8 +220,10 @@
     var r;
     try { r = await fetch(url, opts); }
     catch (e) {
-      throw new Error(e && e.name === "AbortError" ? "Сервис не ответил вовремя. Попробуйте ещё раз."
-                                                   : "Нет связи с сервисом. Проверьте интернет или VPN, либо выберите другой сервис.");
+      var ne = new Error(e && e.name === "AbortError" ? "Сервис не ответил вовремя. Попробуйте ещё раз или выберите другую модель в настройках ⚙."
+                                                      : "Нет связи с сервисом. Проверьте интернет или VPN, либо выберите другой сервис.");
+      ne.timeout = !!(e && e.name === "AbortError");
+      throw ne;
     } finally { if (t) clearTimeout(t); }
     var text = await r.text(), data = null;
     try { data = JSON.parse(text); } catch (e) { data = null; }
@@ -243,7 +247,9 @@
       if (/location|region|country/i.test(msg)) throw new Error(authMessage(provider, r.status, msg));
       if (/data policy|guardrail|privacy/i.test(msg)) throw new Error("OpenRouter не даёт бесплатную модель из-за настроек приватности. Откройте openrouter.ai → Settings → Privacy и разрешите бесплатные модели (Free endpoints), затем повторите. Ответ сервиса: " + msg);
       if (r.status === 404 && /model/i.test(msg)) throw new Error("Модель не найдена. Нажмите «Загрузить список» в настройках и выберите другую. Ответ сервиса: " + msg);
-      throw new Error("Ошибка сервиса (" + r.status + "): " + msg);
+      var se = new Error("Ошибка сервиса (" + r.status + "): " + msg);
+      se.server = r.status >= 500;
+      throw se;
     }
     return data;
   }
@@ -352,7 +358,19 @@
       temperature: 0.8,
       max_tokens: 1500
     };
-    var data = await chat(s, body, 60000);
+    var data;
+    try {
+      data = await chat(s, body, p.fallback ? 25000 : 60000);
+    } catch (e) {
+      if (!p.fallback || !(e.timeout || e.server)) throw e;
+      var others = [];
+      try { others = (await listModels(s)).filter(function (m) { return m !== model; }); } catch (e2) {}
+      if (!others.length) throw e;
+      body.model = others[0];
+      data = await chat(s, body, 30000);
+      model = s.models[s.provider] = others[0];
+      saveSettings(s);
+    }
     var msg = data && data.choices && data.choices[0] && data.choices[0].message;
     var text = msg && (msg.content || msg.reasoning_content || "");
     var variants = parseVariants(text, fragment);
