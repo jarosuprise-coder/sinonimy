@@ -152,15 +152,54 @@
     return !!m && !/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(m[1]);
   }
 
+  function cleanKey(k) {
+    return String(k || "")
+      .replace(/[\u200B-\u200D\u2060\uFEFF\s]+/g, "")
+      .replace(/^["'«»“”]+|["'«»“”]+$/g, "")
+      .replace(/^bearer:?/i, "");
+  }
+
+  function keyOf(s) { return cleanKey(s.keys[s.provider]); }
+
   function headers(s) {
     var h = { "Content-Type": "application/json" };
-    var k = (s.keys[s.provider] || "").trim();
+    var k = keyOf(s);
+    if (k && /[^\x21-\x7E]/.test(k)) {
+      throw new Error("В ключе есть лишние символы (например, русские буквы или кавычки-ёлочки). Скопируйте ключ заново целиком.");
+    }
     if (k && insecure(baseOf(s))) {
       throw new Error("Ключ нельзя отправлять по незащищённому адресу http://. Используйте https:// или localhost.");
     }
     if (k) h.Authorization = "Bearer " + k;
     if (s.provider === "openrouter") h["X-Title"] = "Sinonimy for Word";
     return h;
+  }
+
+  function serverMessage(data, text) {
+    if (Array.isArray(data)) data = data[0];
+    var m = data && (data.error && (data.error.message || data.error) || data.detail || data.message);
+    if (!m) m = String(text || "").slice(0, 200);
+    if (typeof m !== "string") m = JSON.stringify(m);
+    return m.slice(0, 300);
+  }
+
+  function authMessage(provider, status, msg) {
+    var p = PROVIDERS[provider] || {};
+    var name = p.name ? p.name.replace(/ — .*/, "") : "Сервис";
+    if (/location|region|country|territor|not available in your|unsupported_country|sanction/i.test(msg)) {
+      return name + " недоступен из вашей страны. Включите VPN для всего компьютера (не только для браузера) или выберите другой сервис.";
+    }
+    if (provider === "hf" && status === 403) {
+      return "У токена Hugging Face нет права на запросы к моделям. Создайте новый токен типа «Read» " +
+             "или Fine-grained с галочкой «Make calls to Inference Providers» и вставьте его в настройках.";
+    }
+    if (provider === "gemini" && /api key not valid|API_KEY_INVALID/i.test(msg)) {
+      return "Ключ Gemini не принят: он неверный или удалён. Создайте новый ключ в Google AI Studio.";
+    }
+    if (status === 403) {
+      return name + " запретил доступ (403). Возможно, сервис не работает в вашей стране или у ключа нет нужных прав. Ответ сервиса: " + msg;
+    }
+    return name + " не принял ключ (" + status + "). Проверьте, что ключ скопирован целиком и не удалён на сайте сервиса. Ответ сервиса: " + msg;
   }
 
   function s_limitMessage(url, msg) {
@@ -172,7 +211,7 @@
     return "Достигнут лимит бесплатного тарифа. Подождите минуту или выберите другой сервис в настройках ⚙.";
   }
 
-  async function fetchJson(url, opts, ms) {
+  async function fetchJson(url, opts, ms, provider) {
     var ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
     var t = ctrl ? setTimeout(function () { ctrl.abort(); }, ms || 60000) : null;
     if (ctrl) opts = Object.assign({}, opts, { signal: ctrl.signal });
@@ -180,21 +219,31 @@
     try { r = await fetch(url, opts); }
     catch (e) {
       throw new Error(e && e.name === "AbortError" ? "Сервис не ответил вовремя. Попробуйте ещё раз."
-                                                   : "Нет связи с сервисом. Проверьте интернет или выберите другой сервис.");
+                                                   : "Нет связи с сервисом. Проверьте интернет или VPN, либо выберите другой сервис.");
     } finally { if (t) clearTimeout(t); }
     var text = await r.text(), data = null;
     try { data = JSON.parse(text); } catch (e) { data = null; }
     if (!r.ok) {
-      var msg = data && (data.error && (data.error.message || data.error) || data.detail || data.message) || text.slice(0, 200);
-      if (typeof msg !== "string") msg = JSON.stringify(msg).slice(0, 200);
-      if (r.status === 401 || r.status === 403) msg = "Ключ не подошёл (" + r.status + "). Проверьте ключ в настройках. " + msg;
-      else if (r.status === 429 || r.status === 402 || /limit/i.test(msg)) {
+      var msg = serverMessage(data, text);
+      if (r.status === 400 && /max_?(completion_)?tokens|max.?output|context.?length|too many tokens/i.test(msg)) {
+        var te = new Error("Модель не приняла размер ответа (лимит токенов). Ответ сервиса: " + msg);
+        te.tokenLimit = true;
+        throw te;
+      }
+      if (r.status === 401 || r.status === 403 ||
+          r.status === 400 && /api.?key|invalid.{0,20}token|token.{0,20}(invalid|expired)|unauthori[sz]ed|authenticat/i.test(msg)) {
+        throw new Error(authMessage(provider, r.status, msg));
+      }
+      if (r.status === 429 || (r.status === 402 && /free limit|rate/i.test(msg))) {
         var err = new Error(s_limitMessage(url, msg));
         err.retryAfter = /ovh/.test(url) ? 30 : /pollinations/.test(url) ? 30 : Math.min(60, +r.headers.get("retry-after") || 20);
         throw err;
       }
-      else if (/location|region|country/i.test(msg)) msg = "Сервис недоступен из вашей страны. Выберите другой сервис или включите VPN.";
-      throw new Error(msg);
+      if (r.status === 402) throw new Error("Сервис просит оплату (402): у этой модели нет бесплатного доступа или закончился баланс. Выберите бесплатную модель. Ответ сервиса: " + msg);
+      if (/location|region|country/i.test(msg)) throw new Error(authMessage(provider, r.status, msg));
+      if (/data policy|guardrail|privacy/i.test(msg)) throw new Error("OpenRouter не даёт бесплатную модель из-за настроек приватности. Откройте openrouter.ai → Settings → Privacy и разрешите бесплатные модели (Free endpoints), затем повторите. Ответ сервиса: " + msg);
+      if (r.status === 404 && /model/i.test(msg)) throw new Error("Модель не найдена. Нажмите «Загрузить список» в настройках и выберите другую. Ответ сервиса: " + msg);
+      throw new Error("Ошибка сервиса (" + r.status + "): " + msg);
     }
     return data;
   }
@@ -202,7 +251,7 @@
   async function listModels(s) {
     var p = PROVIDERS[s.provider];
     if (p.fixedModels) return p.fixedModels.slice();
-    var data = await fetchJson(p.modelsUrl || baseOf(s) + "/models", { headers: headers(s) }, 20000);
+    var data = await fetchJson(p.modelsUrl || baseOf(s) + "/models", { headers: headers(s) }, 20000, s.provider);
     var ids = (data.data || data.models || []).map(function (m) {
       var id = String(m.id || m.name || "");
       if (p.freeOnly && !/:free$/.test(id)) return null;
@@ -271,9 +320,20 @@
     return out;
   }
 
+  async function chat(s, body, ms) {
+    try {
+      return await fetchJson(endpoint(s), { method: "POST", headers: headers(s), body: JSON.stringify(body) }, ms, s.provider);
+    } catch (e) {
+      if (!e.tokenLimit || !body.max_tokens) throw e;
+      var b2 = Object.assign({}, body);
+      delete b2.max_tokens;
+      return await fetchJson(endpoint(s), { method: "POST", headers: headers(s), body: JSON.stringify(b2) }, ms, s.provider);
+    }
+  }
+
   async function paraphrase(s, fragment, context, styleId) {
     var p = PROVIDERS[s.provider];
-    if (p.key === true && !(s.keys[s.provider] || "").trim()) {
+    if (p.key === true && !keyOf(s)) {
       throw new Error("Для сервиса «" + p.name + "» нужен ключ. Откройте настройки ⚙.");
     }
     if (p.custom && !baseOf(s)) throw new Error("Укажите адрес сервиса в настройках ⚙.");
@@ -290,9 +350,9 @@
       model: model,
       messages: buildMessages(fragment, context, styleId, s.count),
       temperature: 0.8,
-      max_tokens: 700
+      max_tokens: 1500
     };
-    var data = await fetchJson(endpoint(s), { method: "POST", headers: headers(s), body: JSON.stringify(body) });
+    var data = await chat(s, body, 60000);
     var msg = data && data.choices && data.choices[0] && data.choices[0].message;
     var text = msg && (msg.content || msg.reasoning_content || "");
     var variants = parseVariants(text, fragment);
@@ -300,8 +360,25 @@
     return { model: model, variants: variants.slice(0, Math.max(s.count, 3) + 2) };
   }
 
+  async function testKey(s) {
+    var p = PROVIDERS[s.provider];
+    if (p.key === true && !keyOf(s)) throw new Error("Сначала вставьте ключ.");
+    var model = s.models[s.provider];
+    if (!model) {
+      var ms = [];
+      try { ms = await listModels(s); } catch (e) { if (!p.defaultModel) throw e; }
+      model = ms[0] || p.defaultModel;
+      if (!model) throw new Error("У сервиса не нашлось подходящих моделей.");
+      s.models[s.provider] = model;
+      saveSettings(s);
+    }
+    var body = { model: model, messages: [{ role: "user", content: "Ответь одним словом: да" }], max_tokens: 400 };
+    await chat(s, body, 45000);
+    return model;
+  }
+
   var api = { PROVIDERS: PROVIDERS, STYLES: STYLES, loadSettings: loadSettings, saveSettings: saveSettings,
-              listModels: listModels, paraphrase: paraphrase, parseVariants: parseVariants, buildMessages: buildMessages };
+              listModels: listModels, paraphrase: paraphrase, testKey: testKey, cleanKey: cleanKey, parseVariants: parseVariants, buildMessages: buildMessages };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.AI = api;
 })(this);

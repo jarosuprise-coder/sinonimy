@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.2.3";
+  var VERSION = "1.2.4";
   var DICT_VER = "2";
 
   var SOURCES = [
@@ -601,11 +601,41 @@
     if (prov.key) {
       var lk = el("label", null, prov.key === true ? "Ключ API" : "Ключ API (если нужен)");
       var ik = el("input");
-      ik.type = "password"; ik.autocomplete = "off"; ik.placeholder = "вставьте ключ";
+      ik.type = "password"; ik.autocomplete = "off"; ik.spellcheck = false; ik.placeholder = "вставьте ключ";
       ik.value = st.keys[st.provider] || "";
-      ik.onchange = function () { st.keys[st.provider] = ik.value.trim(); ai.models = null; AI.saveSettings(st); aiReset(); };
+      ik.oninput = function () {
+        st.keys[st.provider] = AI.cleanKey(ik.value);
+        AI.saveSettings(st);
+      };
+      ik.onchange = function () {
+        ik.value = st.keys[st.provider] || "";
+        ai.models = null; aiReset();
+      };
       lk.appendChild(ik);
       wrap.appendChild(lk);
+
+      var test = el("button", "ai-more", "Проверить ключ");
+      test.type = "button";
+      var testMsg = el("p", "note");
+      test.onclick = async function () {
+        st.keys[st.provider] = AI.cleanKey(ik.value);
+        AI.saveSettings(st);
+        test.disabled = true;
+        testMsg.className = "note";
+        testMsg.textContent = "Проверяю…";
+        try {
+          var m = await AI.testKey(st);
+          testMsg.className = "note ai-ok";
+          testMsg.textContent = "Ключ работает, модель: " + m;
+          aiReset();
+        } catch (e) {
+          testMsg.className = "ai-error";
+          testMsg.textContent = e.message;
+        }
+        test.disabled = false;
+      };
+      wrap.appendChild(test);
+      wrap.appendChild(testMsg);
     }
 
     var lm = el("label", null, "Модель");

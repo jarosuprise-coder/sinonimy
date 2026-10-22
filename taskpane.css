@@ -193,3 +193,5 @@ footer .muted { display: block; margin-top: 4px; opacity: .8; }
 .ai-row { display: flex; gap: 6px; }
 .ai-row select { flex: 1; }
 .ai-settings .note { margin: 0; font-size: 12px; }
+.ai-ok { color: #2e7d32; }
+@media (prefers-color-scheme: dark) { .ai-ok { color: #81c784; } }

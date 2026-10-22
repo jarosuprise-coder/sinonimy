@@ -6,7 +6,7 @@
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8</Id>
-  <Version>1.2.3.0</Version>
+  <Version>1.2.4.0</Version>
   <ProviderName>Личная надстройка</ProviderName>
   <DefaultLocale>ru-RU</DefaultLocale>
   <DisplayName DefaultValue="Синонимы"/>
