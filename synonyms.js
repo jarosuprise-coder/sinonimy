@@ -369,10 +369,104 @@
     return groups;
   }
 
+
+  var PARTICLES = { "то": 1, "либо": 1, "нибудь": 1, "таки": 1, "кое": 1, "кой": 1 };
+  var HYPH = /[‐‑]/g;
+
+  function compoundParts(word) {
+    var w = String(word).replace(HYPH, "-");
+    if (!/^[A-Za-zА-Яа-яЁё]+(-[A-Za-zА-Яа-яЁё]+){1,2}$/.test(w)) return null;
+    var parts = w.split("-");
+    for (var i = 0; i < parts.length; i++) {
+      if (parts[i].length < 3 || PARTICLES[norm(parts[i])]) return null;
+    }
+    return parts;
+  }
+
+  function combForm(adj) {
+    var t = adjType(adj);
+    if (!t) return null;
+    if (/ический$/.test(adj)) return adj.slice(0, -6) + "ико";
+    return adj.slice(0, -2) + (t === "hard" || t === "velar" ? "о" : "е");
+  }
+
+  function adjFromComb(part) {
+    var p = norm(part);
+    if (p.length < 4 || !/[ое]$/.test(p)) return [];
+    var stem = p.slice(0, -1);
+    var c = [stem + "ый", stem + "ий", stem + "ой"];
+    if (/ико$/.test(p)) c.unshift(p.slice(0, -2) + "ческий");
+    return c.filter(function (a) { return combForm(a) === p; });
+  }
+
+  function single(s) { return !/[\s-]/.test(s); }
+  function isVerb(s) { return /(ть|ти|чь)(ся|сь)?$/.test(s); }
+
+  function compound(word, d) {
+    var parts = compoundParts(word);
+    if (!parts) return [];
+    var seen = {}, out = [];
+    seen[key(word)] = 1;
+    function group(label, texts) {
+      var items = [];
+      texts.forEach(function (x) {
+        var t = matchCase(word, x[0]), k = key(t);
+        if (seen[k]) return;
+        seen[k] = 1;
+        items.push({ base: x[1], key: k, text: t });
+      });
+      if (items.length) out.push({ label: label, items: items });
+    }
+
+    var low = parts.map(norm);
+    function derived(np, oldStem) { return low.indexOf(np) !== -1 || (oldStem.length > 3 && np.indexOf(oldStem) !== -1); }
+    var last = parts[parts.length - 1], head = parts.slice(0, -1).join("-");
+    var lastInfo = findLemmas(d.has, last)[0] || null;
+    var lastAdj = !!(lastInfo && adjType(lastInfo.lemma) && (!lastInfo.rule || lastInfo.rule[2] === "adj"));
+    if (lastInfo) {
+      var t1 = [];
+      prepare(last.toLowerCase(), lastInfo, d.groups(lastInfo.lemma)).forEach(function (g) {
+        g.items.forEach(function (it) {
+          if (!single(it.text) || (lastAdj && !adjType(norm(it.base)))) return;
+          if (derived(norm(it.text), lastInfo.lemma.slice(0, -2))) return;
+          t1.push([head.toLowerCase() + "-" + it.text, it.base]);
+        });
+      });
+      group("вместо «" + last.toLowerCase() + "»", t1);
+    }
+
+    var first = parts[0], rest = parts.slice(1).join("-").toLowerCase(), t2 = [];
+    var adjs = adjFromComb(first).filter(function (a) { return d.has(a); });
+    adjs.forEach(function (a) {
+      d.groups(a).forEach(function (g) {
+        g.words.forEach(function (w) {
+          var cf = single(w) && combForm(norm(w));
+          if (cf && !derived(cf, low[0].slice(0, -1))) t2.push([cf + "-" + rest, w]);
+        });
+      });
+    });
+    if (!adjs.length && d.has(norm(first))) {
+      d.groups(norm(first)).forEach(function (g) {
+        g.words.forEach(function (w) {
+          var n = norm(w);
+          if (single(w) && !adjType(n) && !isVerb(n) && !derived(n, low[0].length > 4 ? low[0].slice(0, -1) : "")) t2.push([n + "-" + rest, w]);
+        });
+      });
+    }
+    group("вместо «" + first.toLowerCase() + "»", t2);
+
+    if (parts.length === 2 && lastAdj && adjs.length) {
+      var a1 = adapt(last, lastInfo, adjs[0]);
+      group("раздельно", [[a1 + " и " + last.toLowerCase(), adjs[0]]]);
+    }
+    return out;
+  }
+
   var api = { buildIndex: buildIndex, findLemmas: findLemmas,
               adapt: adapt, inflectAdj: inflectAdj, matchCase: matchCase, norm: norm,
               key: key, makeDict: makeDict, ruleFor: ruleFor, prepare: prepare,
-              merge: merge, parseWiki: parseWiki };
+              merge: merge, parseWiki: parseWiki,
+              compound: compound, compoundParts: compoundParts, combForm: combForm };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Syn = api;
 })(this);

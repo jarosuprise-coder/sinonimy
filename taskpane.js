@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.3";
+  var VERSION = "1.4";
   var DICT_VER = "2";
 
   var SOURCES = [
@@ -13,7 +13,13 @@
     { id: "ruwordnet", name: "RuWordNet", short: "Р", url: "dict/ruwordnet.json",
       about: "Тезаурус RuWordNet 2021, ruwordnet.ru (CC BY-SA 4.0)" },
     { id: "libreoffice", name: "LibreOffice", short: "Л", url: "dict/libreoffice.json",
-      about: "Тезаурус LibreOffice: АОТ и Абрамов в ред. М. Королёва (LGPL)" }
+      about: "Тезаурус LibreOffice: АОТ и Абрамов в ред. М. Королёва (LGPL)" },
+    { id: "yarn", name: "YARN", short: "Y", shards: "dict/yarn/",
+      about: "Тезаурус YARN (Yet Another RussNet), russianword.net (CC BY-SA)" },
+    { id: "ruthes", name: "РуТез", short: "Т", shards: "dict/ruthes/",
+      about: "Тезаурус РуТез-лайт, НИВЦ МГУ (CC BY-NC-SA 3.0, только некоммерческое использование)" },
+    { id: "big", name: "Большой", short: "Б", shards: "dict/big/",
+      about: "Большой словарь синонимов, 220 тыс. слов (d0rj/russian-synonyms, Apache-2.0)" }
   ];
   var BY_ID = {};
   SOURCES.forEach(function (s) { BY_ID[s.id] = s; });
@@ -43,7 +49,9 @@
   }
   function readTab() { try { return localStorage.getItem("sin-tab") || "all"; } catch (e) { return "all"; } }
   function saveTab(t) { try { localStorage.setItem("sin-tab", t); } catch (e) {} }
-  function anyLoaded() { return SOURCES.some(function (s) { return dicts[s.id] && typeof dicts[s.id] === "object"; }); }
+  function anyLoaded() { return SOURCES.some(function (s) { return !s.shards && dicts[s.id] && typeof dicts[s.id] === "object"; }); }
+  function isBusy(s) { var d = dicts[s.id]; return d === "loading" || !!(d && d.busy); }
+  function isErr(s) { var d = dicts[s.id]; return d === "error" || !!(d && d.failed); }
   function hasLocal(w) {
     return SOURCES.some(function (s) { var d = dicts[s.id]; return d && typeof d === "object" && d.has(w); });
   }
@@ -92,9 +100,66 @@
     else { idleStatus(); if (inWord) onSelectionChanged(); }
   }
 
+  function shardKey(w) {
+    var c = Syn.norm(w).charAt(0);
+    return /[а-я]/.test(c) ? String(c.charCodeAt(0)) : "other";
+  }
+
+  function makeSharded(src) {
+    var shards = {}, tried = {};
+    var own = Object.prototype.hasOwnProperty;
+    function get(w) { return shards[shardKey(w)] || null; }
+    var d = {
+      id: src.id, name: src.name, busy: 0, failed: false,
+      has: function (w) { var s = get(w); return !!s && own.call(s, w); },
+      groups: function (lemma) {
+        var s = get(lemma);
+        return (s && own.call(s, lemma) ? s[lemma] : []).map(function (g) { return { label: g[0], words: g.slice(1) }; });
+      },
+      need: function (k) { if (tried[k]) return false; tried[k] = 1; return true; },
+      put: function (k, w) { shards[k] = w; }
+    };
+    return d;
+  }
+
+  async function loadShard(src, d, k) {
+    d.busy++;
+    var ck = "shard-" + src.id + "-" + k + "-v" + DICT_VER;
+    try {
+      var data = await cacheGet(ck);
+      if (!data) {
+        var r = await fetch(src.shards + k + ".json");
+        if (r.status === 404) data = { w: {} };
+        else if (!r.ok) throw new Error(r.status);
+        else { data = await r.json(); cacheSet(ck, data); }
+      }
+      d.put(k, data.w || {});
+      d.failed = false;
+    } catch (e) {
+      console.error(src.id, k, e);
+      d.failed = true;
+    }
+    d.busy--;
+    if (state.word && !state.phrase) show(state.word, state.target, state.prefer, true);
+  }
+
+  function ensureShards(word) {
+    var keys = {};
+    String(word).split(/[\s\-\u2010\u2011]+/).concat([word]).forEach(function (p) {
+      if (!p) return;
+      keys[shardKey(p)] = 1;
+      Syn.findLemmas(null, p).forEach(function (l) { keys[shardKey(l.lemma)] = 1; });
+    });
+    SOURCES.forEach(function (s) {
+      var d = dicts[s.id];
+      if (!s.shards || !d || typeof d !== "object") return;
+      Object.keys(keys).forEach(function (k) { if (d.need(k)) loadShard(s, d, k); });
+    });
+  }
+
   function idleStatus() {
     if (!anyLoaded()) {
-      var failed = SOURCES.every(function (s) { return s.live || dicts[s.id] === "error"; });
+      var failed = SOURCES.every(function (s) { return s.live || s.shards || dicts[s.id] === "error"; });
       setStatus(failed ? "Словари не загрузились. Проверьте интернет и откройте панель заново."
                        : "Загружаю словари (только в первый раз, около 3 МБ)…");
     } else {
@@ -189,6 +254,7 @@
       return;
     }
 
+    ensureShards(word);
     var lemmas = Syn.findLemmas(hasLocal, word);
     var cur = lemmas[0] || null;
     if (prefer) lemmas.forEach(function (l) { if (l.lemma === prefer) cur = l; });
@@ -200,7 +266,16 @@
     SOURCES.forEach(function (s) {
       var d = dicts[s.id];
       if (s.live || !d || typeof d !== "object") return;
-      state.results[s.id] = { id: s.id, groups: cur ? Syn.prepare(word, cur, d.groups(cur.lemma)) : [] };
+      var groups = cur ? Syn.prepare(word, cur, d.groups(cur.lemma)) : [];
+      if (Syn.compoundParts(word)) {
+        var have = {};
+        groups.forEach(function (g) { g.items.forEach(function (it) { have[it.key] = have[Syn.key(it.text)] = 1; }); });
+        Syn.compound(word, d).forEach(function (g) {
+          var items = g.items.filter(function (it) { return !have[it.key]; });
+          if (items.length) groups.push({ label: g.label, items: items });
+        });
+      }
+      state.results[s.id] = { id: s.id, groups: groups };
     });
 
     if ((keepWiki || sameWord) && state.wiki === "loading") {
@@ -242,7 +317,7 @@
 
     var lemma = state.cur ? state.cur.lemma : (state.results.wiki && state.results.wiki.lemma) || null;
     if (!all.length) {
-      var waiting = state.wiki === "loading" || SOURCES.some(function (s) { return dicts[s.id] === "loading"; });
+      var waiting = state.wiki === "loading" || SOURCES.some(isBusy);
       setStatus(waiting ? "Ищу синонимы к «" : "Нет синонимов для «", word, waiting ? "»…" : "»");
     } else {
       setStatus("«", word, "»" + (lemma && Syn.key(lemma) !== Syn.key(word) ? " → " + lemma : ""));
@@ -260,10 +335,12 @@
       var res = state.results[tab];
       if (!res) {
         list.appendChild(note(tab === "wiki" && state.wiki === "loading" ? "Загружаю статью из Викисловаря…"
-                         : dicts[tab] === "error" ? "Этот словарь не загрузился. Проверьте интернет."
-                         : dicts[tab] === "loading" ? "Словарь ещё загружается…" : ""));
+                         : BY_ID[tab] && isErr(BY_ID[tab]) ? "Этот словарь не загрузился. Проверьте интернет."
+                         : BY_ID[tab] && isBusy(BY_ID[tab]) ? "Словарь ещё загружается…" : ""));
       } else if (!res.groups.length) {
         list.appendChild(note(tab === "wiki" && state.wiki === "error" ? "Викисловарь сейчас недоступен."
+                         : BY_ID[tab] && isBusy(BY_ID[tab]) ? "Загружаю часть словаря…"
+                         : BY_ID[tab] && isErr(BY_ID[tab]) ? "Часть словаря не загрузилась. Проверьте интернет."
                          : all.length ? "В этом словаре нет синонимов к этому слову. Посмотрите вкладку «Все»." : ""));
       } else {
         res.groups.forEach(function (g) {
@@ -319,8 +396,8 @@
                   count: ai.status === "loading" || ai.status === "waiting" ? "…" : ai.status === "error" ? "!" : ai.variants.length || "" };
     var defs = state.phrase ? [aiDef] : [{ id: "all", name: "Все", count: allCount }].concat(SOURCES.map(function (s) {
       var res = state.results[s.id], c = countOf(res);
-      var busy = s.live ? state.wiki === "loading" : dicts[s.id] === "loading";
-      var err = s.live ? state.wiki === "error" : dicts[s.id] === "error";
+      var busy = s.live ? state.wiki === "loading" : isBusy(s);
+      var err = s.live ? state.wiki === "error" : isErr(s);
       return { id: s.id, name: s.name, count: busy ? "…" : err ? "!" : c, title: s.about };
     })).concat([aiDef]);
     var active = state.phrase ? "ai" : tab;
@@ -363,12 +440,12 @@
   }
 
   function wordAt(text, offset) {
-    var re = new RegExp("[" + L + "\\-]");
+    var re = new RegExp("[" + L + "\\-\u2010\u2011]"), dash = /[-\u2010\u2011]/;
     var s = offset, e = offset;
     while (s > 0 && re.test(text[s - 1])) s--;
     while (e < text.length && re.test(text[e])) e++;
-    while (s < e && text[s] === "-") s++;
-    while (e > s && text[e - 1] === "-") e--;
+    while (s < e && dash.test(text[s])) s++;
+    while (e > s && dash.test(text[e - 1])) e--;
     return { word: text.slice(s, e), start: s };
   }
 
@@ -766,7 +843,10 @@
     setupSearch();
     cacheDel("abramov-index-v1");
     idleStatus();
-    SOURCES.forEach(function (s) { if (!s.live) loadDict(s); });
+    SOURCES.forEach(function (s) {
+      if (s.shards) dicts[s.id] = makeSharded(s);
+      else if (!s.live) loadDict(s);
+    });
     if (inWord) setTimeout(onSelectionChanged, 300);
   }
 

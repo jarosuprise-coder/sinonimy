@@ -60,11 +60,11 @@ exit /b 0
            xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
            xsi:type="TaskPaneApp">
   <Id>47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8</Id>
-  <Version>1.3.0.0</Version>
+  <Version>1.4.0.0</Version>
   <ProviderName>Личная надстройка</ProviderName>
   <DefaultLocale>ru-RU</DefaultLocale>
   <DisplayName DefaultValue="Синонимы"/>
-  <Description DefaultValue="Синонимы к выделенному слову из нескольких словарей (Абрамов, Викисловарь, RuWordNet, LibreOffice) и перефразирование фраз через бесплатные ИИ-сервисы; замена в один клик."/>
+  <Description DefaultValue="Синонимы к выделенному слову из нескольких словарей (Абрамов, Викисловарь, RuWordNet, LibreOffice, YARN, РуТез и др.), в том числе к составным словам через дефис, и перефразирование фраз через бесплатные ИИ-сервисы; замена в один клик."/>
   <IconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-32.png"/>
   <HighResolutionIconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-64.png"/>
   <SupportUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/taskpane.html"/>
