@@ -1,0 +1,171 @@
+@echo off
+chcp 65001 >nul
+title Установка надстройки «Синонимы» для Word
+setlocal
+echo.
+echo  Установка надстройки «Синонимы» для Word, версия 1.3
+echo  ---------------------------------------------------
+echo.
+
+set "SIN_SELF=%~f0"
+set "SIN_DIR=C:\Sinonimy"
+mkdir "%SIN_DIR%" 2>nul
+if not exist "%SIN_DIR%" set "SIN_DIR=%LOCALAPPDATA%\Sinonimy"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop';try{$t=[IO.File]::ReadAllText($env:SIN_SELF,[Text.Encoding]::UTF8);$i=$t.LastIndexOf('::MANIFEST::');if($i -lt 0){exit 2};$x=$t.Substring($i+12).Trim();[IO.Directory]::CreateDirectory($env:SIN_DIR)|Out-Null;$m=Join-Path $env:SIN_DIR 'manifest.xml';[IO.File]::WriteAllText($m,$x,(New-Object Text.UTF8Encoding $false));$k='HKCU:\Software\Microsoft\Office\16.0\WEF\Developer';$id='47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8';$c=0;if(Test-Path $k){$p=Get-ItemProperty $k;foreach($n in $p.PSObject.Properties.Name){if($n -like 'PS*' -or $n -eq $id){continue};$v=[string]$p.$n;$d=$false;if($v -like '*.xml'){if(Test-Path -LiteralPath $v){try{if((Get-Content -LiteralPath $v -Raw) -match $id){$d=$true}}catch{}}elseif($v -match 'sinonim'){$d=$true}};if($d){Remove-ItemProperty -Path $k -Name $n -ErrorAction SilentlyContinue;$c++}}};if(-not(Test-Path $k)){New-Item -Path $k -Force|Out-Null};New-ItemProperty -Path $k -Name $id -Value $m -PropertyType String -Force|Out-Null;exit 0}catch{exit 1}"
+if errorlevel 1 (
+  echo  [Ошибка] Не удалось установить надстройку.
+  echo  Попробуйте запустить этот файл ещё раз или от имени администратора.
+  echo.
+  pause
+  exit /b 1
+)
+echo  [OK] Надстройка подключена к Word ^(файл: %SIN_DIR%\manifest.xml^)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try{[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;$r=Invoke-WebRequest -UseBasicParsing -TimeoutSec 20 -Uri 'https://jarosuprise-coder.github.io/sinonimy/taskpane.html';if($r.StatusCode -eq 200){exit 0}else{exit 1}}catch{exit 1}"
+if errorlevel 1 (
+  echo  [!] Сайт надстройки сейчас не открывается. Без него панель в Word
+  echo      не загрузится. Проверьте интернет или включите VPN.
+) else (
+  echo  [OK] Сайт надстройки доступен
+)
+
+tasklist /FI "IMAGENAME eq WINWORD.EXE" 2>nul | find /I "WINWORD.EXE" >nul
+if not errorlevel 1 (
+  echo.
+  echo  Word сейчас открыт. Сохраните документы, закройте ВСЕ окна Word
+  echo  и запустите этот файл ещё раз, чтобы очистить кэш надстроек.
+  echo.
+  pause
+  exit /b 0
+)
+if exist "%LOCALAPPDATA%\Microsoft\Office\16.0\Wef" (
+  rd /s /q "%LOCALAPPDATA%\Microsoft\Office\16.0\Wef" 2>nul
+  echo  [OK] Кэш надстроек Word очищен
+)
+echo.
+echo  Готово. Откройте Word: на вкладке «Главная» появится кнопка «Синонимы».
+echo  Если кнопки нет: «Главная» - «Надстройки» - «Надстройки разработчика» - «Синонимы».
+echo  Если надстройка перестанет открываться, просто запустите этот файл снова.
+echo.
+pause
+exit /b 0
+
+::MANIFEST::
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Надстройка «Синонимы» для Word. Адрес сайта: https://jarosuprise-coder.github.io/sinonimy -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+           xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+           xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+           xsi:type="TaskPaneApp">
+  <Id>47dd82ec-96c6-4899-89d8-ef6fe1fcd0a8</Id>
+  <Version>1.3.0.0</Version>
+  <ProviderName>Личная надстройка</ProviderName>
+  <DefaultLocale>ru-RU</DefaultLocale>
+  <DisplayName DefaultValue="Синонимы"/>
+  <Description DefaultValue="Синонимы к выделенному слову из нескольких словарей (Абрамов, Викисловарь, RuWordNet, LibreOffice) и перефразирование фраз через бесплатные ИИ-сервисы; замена в один клик."/>
+  <IconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-64.png"/>
+  <SupportUrl DefaultValue="https://jarosuprise-coder.github.io/sinonimy/taskpane.html"/>
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+  <Requirements>
+    <Sets DefaultMinVersion="1.3">
+      <Set Name="WordApi" MinVersion="1.3"/>
+    </Sets>
+  </Requirements>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://jarosuprise-coder.github.io/sinonimy/taskpane.html"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <Hosts>
+      <Host xsi:type="Document">
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title"/>
+            <Description resid="GetStarted.Description"/>
+            <LearnMoreUrl resid="Taskpane.Url"/>
+          </GetStarted>
+          <FunctionFile resid="Commands.Url"/>
+
+          <!-- Кнопка на вкладке «Главная» -->
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="Syn.Group">
+                <Label resid="Group.Label"/>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Control xsi:type="Button" id="Syn.OpenPane">
+                  <Label resid="Button.Label"/>
+                  <Supertip>
+                    <Title resid="Button.Label"/>
+                    <Description resid="Button.Tooltip"/>
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16"/>
+                    <bt:Image size="32" resid="Icon.32"/>
+                    <bt:Image size="80" resid="Icon.80"/>
+                  </Icon>
+                  <Action xsi:type="ShowTaskpane">
+                    <TaskpaneId>SynPane</TaskpaneId>
+                    <SourceLocation resid="Taskpane.Url"/>
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+
+          <!-- Пункт в меню правой кнопки мыши -->
+          <ExtensionPoint xsi:type="ContextMenu">
+            <OfficeMenu id="ContextMenuText">
+              <Control xsi:type="Button" id="Syn.ContextOpen">
+                <Label resid="Button.Label"/>
+                <Supertip>
+                  <Title resid="Button.Label"/>
+                  <Description resid="Button.Tooltip"/>
+                </Supertip>
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16"/>
+                  <bt:Image size="32" resid="Icon.32"/>
+                  <bt:Image size="80" resid="Icon.80"/>
+                </Icon>
+                <Action xsi:type="ShowTaskpane">
+                  <TaskpaneId>SynPane</TaskpaneId>
+                  <SourceLocation resid="Taskpane.Url"/>
+                </Action>
+              </Control>
+            </OfficeMenu>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-16.png"/>
+        <bt:Image id="Icon.32" DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-32.png"/>
+        <bt:Image id="Icon.80" DefaultValue="https://jarosuprise-coder.github.io/sinonimy/assets/icon-80.png"/>
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://jarosuprise-coder.github.io/sinonimy/taskpane.html"/>
+        <bt:Url id="Commands.Url" DefaultValue="https://jarosuprise-coder.github.io/sinonimy/commands.html"/>
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="GetStarted.Title" DefaultValue="Синонимы готовы к работе"/>
+        <bt:String id="Group.Label" DefaultValue="Синонимы"/>
+        <bt:String id="Button.Label" DefaultValue="Синонимы"/>
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="GetStarted.Description" DefaultValue="Нажмите «Синонимы» на вкладке «Главная» и выделите слово в тексте."/>
+        <bt:String id="Button.Tooltip" DefaultValue="Открыть панель с синонимами к выделенному слову"/>
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

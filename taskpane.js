@@ -2,7 +2,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "1.2.4";
+  var VERSION = "1.3";
   var DICT_VER = "2";
 
   var SOURCES = [
