@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Синонимы</title>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <link rel="stylesheet" href="css/taskpane.css?v=1.4.2">
+</head>
+<body>
+  <header>
+    <form id="searchForm" autocomplete="off">
+      <input id="search" type="search" placeholder="Слово или фраза…" aria-label="Слово для поиска">
+    </form>
+    <nav id="tabs" class="tabs" role="tablist" aria-label="Словари" hidden></nav>
+  </header>
+
+  <main>
+    <div id="status" class="status">Загружаю словари…</div>
+    <div id="lemmas" class="lemmas" hidden></div>
+    <div id="list" aria-live="polite"></div>
+  </main>
+
+  <footer>
+    Выделите слово или поставьте в него курсор. Щелчок по синониму заменяет слово, варианты можно перебирать подряд.
+    <span class="muted">Выделите фразу или предложение — откроется вкладка «✨ ИИ» с вариантами перефразирования.</span>
+    <span class="muted">На вкладке «Все» каждое слово показано один раз, буквы рядом — в каких словарях оно есть:</span>
+    <span id="sources" class="muted"></span>
+    <span class="muted">Окончания подстраиваются у прилагательных, слова через дефис (научно-технический) разбираются по частям. <span id="version"></span></span>
+  </footer>
+
+  <script src="js/synonyms.js?v=1.4.2"></script>
+  <script src="js/ai.js?v=1.4.2"></script>
+  <script src="js/taskpane.js?v=1.4.2"></script>
+</body>
+</html>
